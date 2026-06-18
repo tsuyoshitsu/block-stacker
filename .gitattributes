@@ -1,0 +1,14 @@
+# 改行コードはリポジトリ内では LF に正規化（クラウド/Linux でのチェックアウトを綺麗に）。
+# Windows 作業コピーは git の autocrlf に従う。
+* text=auto
+
+# 明示的にテキスト/バイナリ
+*.py    text
+*.cs    text
+*.md    text
+*.yaml  text
+*.yml   text
+*.json  text
+*.ps1   text
+*.sh    text eol=lf
+*.zip   binary

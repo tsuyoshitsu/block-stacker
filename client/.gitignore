@@ -1,0 +1,16 @@
+# .NET / Godot C# ビルド成果物
+.godot/
+.mono/
+bin/
+obj/
+*.user
+*.suo
+
+# IDE 設定
+.idea/
+.vs/
+.vscode/
+
+# Godot Mono 用の自動生成ファイル
+*.csproj.user
+*.sln

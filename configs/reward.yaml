@@ -1,0 +1,11 @@
+# Reward weights. All can be overridden per-stage in training.yaml in the future.
+
+place_success: 1.0                  # 「置いた高さ」で補正して加点（接地横付け≈0、上段ほど満点）。案A: env._compute で height_factor を掛ける
+height_record: 0.5                  # +0.5 when tower exceeds previous best
+collapse: -5.0                      # tower collapse penalty。weight=1.0 で記憶バッファに長く残るので -10 まで強くしなくても十分学習する
+time_penalty: -0.05                 # per action（0.01→0.05: 平置き/無意味運搬を強く抑制）
+timeout_penalty: -1.0               # extra penalty when episode truncates on no-progress
+collapse_height_threshold: 0.075    # default H_high (overridden per stage)
+reset_height_threshold: 0.025       # default H_low  (overridden per stage)
+flatness_bonus: 0.0                 # NOTE: 現状 env.py の reward 計算に未配線（stub）。有効化するには env._compute_reward への組込みが必要。
+flatness_scale: 0.1

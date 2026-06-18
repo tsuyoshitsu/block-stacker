@@ -1,0 +1,68 @@
+# 学習用イメージ (c6a.4xlarge / AMD EPYC, CPU-only)。
+#
+# 設計上のポイント:
+#   - 本プロジェクトの NN は小規模 (HybridFeatureExtractor + MLP, 〜十万 params) かつ
+#     PyBullet 物理シムが CPU bound のため、GPU の利点が出ない。
+#     → CPU torch wheel に切替し、g4dn (GPU) よりインスタンス単価を 40% 削減。
+#   - PyBullet headless でも libGL.so 等は必要なので OpenGL ライブラリは残す。
+FROM python:3.12-slim
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    PYTHONUNBUFFERED=1 \
+    PYTHONDONTWRITEBYTECODE=1
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        libgl1 libglib2.0-0 \
+        ca-certificates curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# 1) torch (CPU wheel) を専用 index から先に取得。
+RUN pip install --no-cache-dir \
+        torch --index-url https://download.pytorch.org/whl/cpu
+
+# 2) 非 torch 依存を PyPI から (--no-deps で torch 上書き防止)
+RUN pip install --no-cache-dir \
+        "pybullet>=3.2.6" \
+        "numpy>=1.26" \
+        "pyyaml>=6.0" \
+        "gymnasium>=0.29" \
+        "stable-baselines3>=2.3.0" \
+        "tensorboard>=2.14" \
+        "websockets>=12.0"
+
+# 3) プロジェクトコードを deps 再解決せずにインストール
+COPY pyproject.toml ./
+COPY src ./src
+RUN pip install --no-cache-dir --no-deps .
+
+# configs は EC2 ホストから volume mount する想定 (S3 から sync 済)。
+# イメージにも fallback として同梱しておく。
+COPY configs ./configs
+
+ENV CONFIGS_DIR=/app/configs
+
+# 卒業条件はコンテナ環境変数で上書きできる（優先順位: env var > training.yaml > 既定値）。
+#   BS_GRADUATION_RATIO     目標高さ = 在庫満積み高さ × ratio（既定 0.6）
+#   BS_GRADUATION_THRESHOLD 「目標高さ到達」の卒業成功率（既定 0.6。散布0は別途・即卒業）
+#   BS_GRADUATION_WINDOW    成功率を見る直近エピソード数（既定 30）
+# 例: docker run -e BS_GRADUATION_RATIO=0.7 -e BS_GRADUATION_THRESHOLD=0.8 ...
+# （ENV で固定したい場合は下記をアンコメント）
+# ENV BS_GRADUATION_RATIO=0.6
+# ENV BS_GRADUATION_THRESHOLD=0.6
+# ENV BS_GRADUATION_WINDOW=30
+
+ENTRYPOINT ["python", "-m"]
+# 既定は MVP 2 SAC 訓練 + オートカリキュラム（Stage 1→5 を自動進行）。
+#   カリキュラムは mvp2.train の既定 ON（下の --curriculum は明示のため）。
+#   各ステージで「散布0で即卒業」または「目標高さ到達の success_rate>=0.6（直近30）」で卒業。
+#   --total-timesteps は「全ステージ合計の上限（グローバル予算）」。総手数は必ずこの値以下。
+#   早く卒業した分の残りが次ステージに回る。使い切ったら中断。SubprocVecEnv 8 並列。
+#   単一 Stage 1 に戻すなら --no-curriculum を渡す。
+# 保存: 最終 sac_final.zip のみ（ステージごとの最終モデルは保存せず checkpoints/ で補完。デモは sac_final.zip を読む）。
+CMD ["block_stacker.mvp2.train", \
+     "--curriculum", \
+     "--total-timesteps", "1000000", \
+     "--n-envs", "8", \
+     "--use-subproc"]

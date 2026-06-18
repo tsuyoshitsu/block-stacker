@@ -1,0 +1,43 @@
+# Physics simulation configuration.
+
+simulation:
+  internal_rate_hz: 240
+  solver_iterations: 100
+  use_split_impulse: true
+
+gravity: [0.0, 0.0, -9.81]
+
+friction:
+  block_to_block: 0.6
+  block_to_ground: 0.8
+  block_to_wall: 0.4
+  rolling_friction: 0.001
+  spinning_friction: 0.001
+
+restitution:
+  block: 0.1
+  ground: 0.1
+  wall: 0.3
+
+damping:
+  linear: 0.1
+  angular: 0.1
+
+contact:
+  # 接触をより硬く（ペナルティ式ソフト接触の沈み込みを浅く）。
+  # 角の刺さり対策: 実測で積み上げ時の最大貫通 0.33mm→0.09mm。貫通押し戻し
+  # (splitImpulsePenetrationThreshold=-0.02) は据え置きで、押し戻し後に settle で再静定する。
+  # 物理が変わるので学習し直し推奨。不安定なら stiffness を下げる。
+  stiffness: 40000
+  damping: 400
+
+sleep_detection:
+  linear_velocity_threshold: 0.01
+  angular_velocity_threshold: 0.05
+  stable_frames_required: 30        # at internal_rate_hz
+
+carrier_constraint:
+  type: "point2point"
+  max_force: 8.0
+  trajectory_speed: 0.3             # m/s during transport
+  approach_height_offset: 0.05      # m, lift before horizontal move

@@ -1,0 +1,144 @@
+# Training configuration: SAC + 重みつき記憶バッファ + 短期記憶。
+
+episode_reset_strategy: "simple_shuffle"
+
+episode:
+  max_steps: 30
+  # 子供メタファー: 進歩なし手数の上限。緩めの 15 で「探索を萎縮させない」。
+  max_actions_without_progress: 15
+  timeout_treated_as: "failure"
+
+curriculum:
+  graduation:
+    rule: "success_rate"
+    # 成功 = そのエピソードで「散布0（全ブロックを積み切った）」 OR 「目標高さ到達」のどちらか。
+    # その成功率が直近 window エピソードで threshold 以上になったら卒業。
+    window: 30
+    threshold: 0.6
+    # 目標高さ = 在庫を全部縦積みした理論高さ × ratio（在庫が増えれば目標も比例して上がる）。
+    # 各ステージの静的 target_height は使わず、この ratio から動的に決まる。
+    ratio: 0.6
+  demotion_enabled: false
+  # 形状を段階的に追加していくカリキュラム。
+  # 順序の根拠: 円柱は転がるので最も難しい → 4 形状中最後に投入。
+  #            三角柱は平面が多く安定面が複数あるので、cuboid の次に投入。
+  # 注: 目標高さは各ステージ固定値ではなく「在庫 × graduation.ratio」で動的に決まる
+  #     （inventory_full_stack_height × ratio）。なので stage に target_height は持たない。
+  stages:
+    - id: 1
+      name: "Stage 1: cube だけ・低い目標"
+      shapes_allowed: [cube]
+      inventory: {cube: 8}
+      stable_duration: 2.0
+      h_high: 0.075
+      h_low: 0.025
+    - id: 2
+      name: "Stage 2: cube だけ・高い目標"
+      shapes_allowed: [cube]
+      inventory: {cube: 15}
+      stable_duration: 2.0
+      h_high: 0.20
+      h_low: 0.05
+    - id: 3
+      name: "Stage 3: cube + cuboid"
+      shapes_allowed: [cube, cuboid]
+      inventory: {cube: 8, cuboid: 7}
+      stable_duration: 2.0
+      h_high: 0.25
+      h_low: 0.08
+    - id: 4
+      name: "Stage 4: 三角柱を追加（cube + cuboid + triangular_prism）"
+      shapes_allowed: [cube, cuboid, triangular_prism]
+      inventory: {cube: 5, cuboid: 5, triangular_prism: 5}
+      stable_duration: 2.0
+      h_high: 0.28
+      h_low: 0.10
+    - id: 5
+      name: "Stage 5: 円柱を追加（全 4 形状、最難）"
+      shapes_allowed: [cube, cuboid, triangular_prism, cylinder]
+      inventory: {cube: 4, cuboid: 4, triangular_prism: 4, cylinder: 3}
+      stable_duration: 2.0
+      h_high: 0.32
+      h_low: 0.12
+
+sac:
+  total_timesteps: 30000         # MVP 1/2 verification (本格は 1M+ 推奨, Dockerfile.learner 参照)
+  # c6a.4xlarge (AMD EPYC, 8 物理コア) の物理コア飽和点。
+  # SAC は train_freq が低いほど on-step 学習が重く、CPU が物理 step より遅い場合は
+  # n_envs を上げすぎても train が間に合わない。8 は安全側。
+  n_envs: 8
+  buffer_size: 50000             # 重みつき設計のため、容量は標準の半分でも十分機能
+  learning_starts: 200           # この回数 env steps 集めるまで policy 更新せず
+  batch_size: 256                # replay からサンプリングするバッチ
+  learning_rate: 0.0003
+  tau: 0.005                     # target network ソフト更新係数
+  gamma: 0.99
+  train_freq: 1                  # train_freq 個の env-step ごとに学習
+  gradient_steps: 8              # n_envs と揃える（n_envs * env_step = gradient_step）
+  ent_coef: "auto"               # 自動エントロピー温度調整（子供の "色々試す" を最大エントロピーで実現）
+  target_update_interval: 1
+  log_interval: 4
+  # checkpoint 保存間隔（総 timesteps 単位）。tools/demo_checkpoints.ps1 で
+  # 段階比較するときの「コマ数」になる。
+  #   1000  → 細かすぎる（100k 学習で 100 checkpoint、ディスクも食う）
+  #   5000  → ちょうど良い (100k で 20 checkpoint, 500k で 100 checkpoint)
+  #   10000 → 粗め（成長を大まかに見たいなら）
+  save_freq: 5000
+  features_dim: 128              # MVP 2: HybridFeatureExtractor output width
+
+# 重みつき記憶バッファ + 短期記憶の設定。子供っぽい記憶ダイナミクスを構成する。
+memory_system:
+  enabled: true                  # false にすると標準 SAC バッファに退化（A/B 比較用）
+
+  # 各記憶エントリの初期重み（イベント種別で差をつける）。
+  # 大きいほど「強い記憶」: 学習で参照されやすく、減衰しても残りやすく、
+  # 読み出し時のブレが小さい。
+  initial_weights:
+    collapse: 1.0                # 崩落 = 最も強烈な体験
+    failure: 0.7                 # 進歩なし truncate / timeout
+    height_record: 0.5           # 新記録達成（ポジティブな強い記憶）
+    success: 0.3                 # 通常の placement 成功
+    no_progress: 0.1             # 何も起きなかった手
+
+  # 時間経過による重みの減衰。1 ステップごとに weight *= decay_rate。
+  # 0.9999 → 半減期 ~6,900 step（学習エピソード ~230 本相当）。
+  decay_rate: 0.9999
+
+  # 読み出し時の記憶のブレ（「曖昧な記憶」を表現）。
+  # 実際のブレ幅 = max_blur × (1 - 現在の重み)。
+  # → 重みが大きい記憶（強烈・新しい）ほど鮮明、低い記憶ほどボヤける。
+  recall_noise:
+    enabled: true
+    coordinate_sigma: 0.05       # 動作・観測の座標系のブレ上限（-1〜1 スケール）
+
+  # バッファ満杯時の eviction。"min_weight" は K-tournament で重み最小を押し出す。
+  # "fifo" は標準 SAC 同様 FIFO（古い順）。
+  eviction: "min_weight"
+  eviction_tournament_k: 16      # min_weight 時に比較する候補数（O(K) コスト）
+
+  # 重みの下限（floor）。極小重みでバッファに残り続ける記憶を防ぐ。
+  weight_floor: 0.001
+
+  # 直前のタワー高さによる重み補正。高いタワーで起きた経験ほど「強い記憶」に底上げする。
+  # event 別 initial_weight に掛け算で乗る:
+  #   initial_weight *= clip(1 + coef × (height_before / reference), 1, max_factor)
+  # 掛け算なので event 種別の相対順位（崩落>失敗>…）は保たれる。
+  height_weighting:
+    enabled: true
+    coef: 1.0          # 補正の強さ。0 で実質無効
+    reference: 0.10    # 高さ正規化の基準（m）。Stage 1 の target_height 相当
+    max_factor: 3.0    # 補正倍率の上限（暴走・過学習防止）
+
+# 短期記憶: 観測辞書に「直近 N 手の行動・結果」を含める。
+# 「**さっき** どうしたか」を AI が把握できるようにする（同じ失敗を繰り返さない効果）。
+short_term_memory:
+  enabled: true
+  length: 5                      # 直近 5 手を保持
+
+observation:
+  # 観測の per-block 枠数。「拾える散布ブロックの近い順トップ K」だけを入れる
+  # （積まれたブロックは heightmap が表現するので含めない）。よって世界の合計ブロック数は
+  # この値を超えてよい＝同時に枠へ映る近い散布ブロックが最大 max_blocks 個、という意味。
+  # 遠い散布ブロックは枠からあぶれて見えない＝「子供の狭い視野」メタファー。
+  max_blocks: 8
+  heightmap_resolution: 32       # MVP 2: NxN heightmap grid

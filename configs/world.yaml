@@ -1,0 +1,56 @@
+# World configuration for the block stacking environment.
+# All distances in meters.
+
+work_area:
+  x_range: [-1.0, 1.0]
+  y_range: [-1.0, 1.0]
+  z_max: 3.0                  # ceiling for height clamps and raycasts
+
+boundary:
+  type: "invisible_walls"     # invisible_walls | open | bowl
+  height: 1.0
+  restitution: 0.3
+
+ground:
+  size: [3.0, 3.0]
+  friction: 0.8
+  restitution: 0.1
+
+# Shape definitions. dims meaning depends on type:
+#   box               => [width_x, height_y, depth_z]
+#   cylinder          => [radius, height]
+#   triangular_prism  => [leg_length, prism_length]  (right isosceles, axis along X)
+shapes:
+  cube:
+    type: "box"
+    dims: [0.05, 0.05, 0.05]
+    density: 400
+    color: [0.9, 0.5, 0.3, 1.0]    # オレンジ
+  cuboid:
+    type: "box"
+    dims: [0.08, 0.04, 0.04]
+    density: 400
+    color: [0.4, 0.7, 0.9, 1.0]    # 水色
+  triangular_prism:
+    type: "triangular_prism"
+    dims: [0.05, 0.05]              # leg_length, prism_length (cube とほぼ同サイズ)
+    density: 400
+    color: [0.95, 0.85, 0.2, 1.0]  # 黄色
+  cylinder:
+    type: "cylinder"
+    dims: [0.025, 0.06]
+    density: 400
+    color: [0.6, 0.9, 0.5, 1.0]    # 黄緑
+
+# How many of each shape to spawn initially (curriculum で stage 別に override 可能)。
+inventory:
+  cube: 4
+  cuboid: 2
+  triangular_prism: 2
+  cylinder: 2
+
+# Rules for the initial scatter of blocks.
+initial_scatter:
+  exclude_radius_from_center: 0.15   # keep this radius around (0,0) free for the tower
+  min_inter_block_distance: 0.07     # rejection-sample to maintain this min XY spacing
+  random_yaw: true                   # uniform yaw at spawn

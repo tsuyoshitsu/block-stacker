@@ -1,0 +1,41 @@
+# Python
+__pycache__/
+*.py[cod]
+build/
+dist/
+*.egg-info/
+
+# Venv
+.venv/
+.env
+
+# Test/coverage
+.pytest_cache/
+.coverage
+.mypy_cache/
+.ruff_cache/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Project artifacts
+output/
+*.log
+
+# Godot editor cache & .NET (C#) build output (client)
+.godot/
+client/bin/
+client/obj/
+*.user
+
+# Claude Code local settings (machine-specific, not shared)
+.claude/settings.local.json
+
+# Editor/backup leftovers
+*.old
