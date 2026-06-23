@@ -60,6 +60,7 @@ from block_stacker.config import (
 from block_stacker.env.env import BlockStackerEnv, inventory_full_stack_height
 from block_stacker.mvp2.curriculum import (
     GraduationCallback,
+    StageMonitorCallback,
     resolve_graduation,
     stage_inventory,
 )
@@ -201,7 +202,23 @@ def main() -> None:
             "height_max_factor": float(height_cfg.get("max_factor", 3.0)),
         }
 
-    save_freq = max(int(sac_cfg["save_freq"]) // max(1, n_envs), 1)
+    # checkpoint を total_timesteps の等分地点（checkpoint_splits 等分）で保存する。
+    # SB3 CheckpointCallback の save_freq は「1 本の環境ストリームあたりのステップ数
+    # (= n_calls)」基準のため、n_envs 並列では n_envs で割って実際の通算ステップを合わせる。
+    #
+    # 例: total_timesteps=100000, splits=5, n_envs=6
+    #   save_freq = 100000 // 5 // 6 = 3333
+    #   実際の保存ステップ: 3333*6=19998, 6666*6=39996, ... ≈ 20/40/60/80/100 %
+    #
+    # 最終地点（100 %）の checkpoint は sac_final.zip と内容が重複するが、
+    # demo_checkpoints.ps1 / curate_week.ps1 が checkpoints/ を参照して等間隔選出するため
+    # 残しておく（curate_week.ps1 は 100 % を step_05.zip に選ぶ）。
+    splits = int(sac_cfg.get("checkpoint_splits", 5))
+    save_freq = max(total_timesteps // splits // max(1, n_envs), 1)
+    LOG.info(
+        "Checkpoint: splits=%d, save_freq=%d calls (≈%d total steps per split, n_envs=%d)",
+        splits, save_freq, save_freq * n_envs, n_envs,
+    )
 
     def build_vec_env(stage: dict[str, Any]) -> DummyVecEnv | SubprocVecEnv:
         factory = make_factory(
@@ -312,6 +329,33 @@ def main() -> None:
                     stage_id, grad_cb.success_rate, grad_threshold, total_timesteps,
                 )
                 break
+
+    # --- 全ステージ早期卒業後も予算が残っていれば最終ステージで継続学習 ---
+    # GraduationCallback が model.learn() を early-exit させるため、
+    # 最終ステージが total_timesteps 未満で卒業するとその分の checkpoint が欠落する。
+    # ループ後に予算が残っていた場合は最終ステージの環境で消化し、
+    # checkpoint を total_timesteps まで埋める。
+    # （非卒業で break した場合は num_timesteps >= total_timesteps なのでここは skip される。）
+    if model is not None and model.num_timesteps < total_timesteps:
+        final_stage = run_stages[-1]
+        LOG.info(
+            "残り予算 %d steps を Stage %s (最終) で継続学習します（全ステージ早期卒業後）",
+            total_timesteps - model.num_timesteps, final_stage.get("id", "?"),
+        )
+        continuation_env = build_vec_env(final_stage)
+        model.set_env(continuation_env)
+        # GraduationCallback は False を返すと learn() を止めてしまうため使えない。
+        # StageMonitorCallback で curriculum/stage・success_rate のみ継続記録する。
+        continuation_monitor = StageMonitorCallback(
+            stage_id=final_stage.get("id"), window=grad_window,
+        )
+        model.learn(
+            total_timesteps=total_timesteps,
+            callback=[checkpoint_cb, continuation_monitor],
+            log_interval=int(sac_cfg["log_interval"]),
+            reset_num_timesteps=False,
+        )
+        continuation_env.close()
 
     assert model is not None
     # 最終モデルのみ保存（ステージごとの最終モデルは保存しない＝checkpoints/ で補完）。

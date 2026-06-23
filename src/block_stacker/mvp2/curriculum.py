@@ -80,6 +80,44 @@ def stage_inventory(stage: dict[str, Any], world_cfg: WorldConfig) -> dict[str, 
     }
 
 
+class StageMonitorCallback(BaseCallback):
+    """継続学習フェーズ用モニター。卒業ロジックなしで curriculum メトリクスを記録する。
+
+    全ステージ早期卒業後の post-loop continuation で GraduationCallback の代わりに使う。
+    GraduationCallback は graduation 条件が満たされると False を返して learn() を止めるが、
+    continuation では total_timesteps まで走り続ける必要があるため、このクラスを使う。
+    """
+
+    def __init__(self, stage_id: int | None, window: int = 30) -> None:
+        super().__init__(verbose=0)
+        self.stage_id = stage_id
+        self.successes: deque[float] = deque(maxlen=window)
+        self.episodes_seen = 0
+
+    @property
+    def success_rate(self) -> float:
+        if not self.successes:
+            return 0.0
+        return sum(self.successes) / len(self.successes)
+
+    def _on_step(self) -> bool:
+        dones = self.locals.get("dones")
+        infos = self.locals.get("infos")
+        if dones is not None and infos is not None:
+            for done, info in zip(dones, infos, strict=False):
+                if done:
+                    self.episodes_seen += 1
+                    self.successes.append(1.0 if info.get("is_success", False) else 0.0)
+        logger = getattr(self, "logger", None)
+        if logger is not None:
+            if self.stage_id is not None:
+                logger.record("curriculum/stage", self.stage_id)
+            if self.episodes_seen > 0:
+                logger.record("curriculum/success_rate", self.success_rate)
+                logger.record("curriculum/episodes_seen", self.episodes_seen)
+        return True  # 卒業ロジックなし: 決して learn() を止めない
+
+
 class GraduationCallback(BaseCallback):
     """成功率が threshold 以上になったら卒業（learn を早期終了して次ステージへ）。
 
