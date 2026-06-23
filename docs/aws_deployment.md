@@ -1040,8 +1040,8 @@ memory_system:
 ```
 
 - `--n-envs 6`: 物理コア数に合わせる（クラウドは 8、ローカルは 4〜6）
-- `--total-timesteps 100000`: 約 25 分で 20 個の checkpoint
-- `output/mvp2/checkpoints/sac_stage1_<N>_steps.zip` が `save_freq=5000` ごとに保存
+- `--total-timesteps 100000`: 約 25 分で 5 本の checkpoint（20/40/60/80/100% 地点）
+- `output/mvp2/checkpoints/sac_<N>_steps.zip` が `total_timesteps` の等分地点（`checkpoint_splits=5`）で保存（ステージ番号はファイル名に含まれない）
 
 ### G.2 TensorBoard で学習曲線を見る（別ターミナル）
 

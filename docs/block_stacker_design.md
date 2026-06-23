@@ -378,6 +378,10 @@ all_placed = 散布0 を達成                     # 即卒業のトリガー（
 - 保存: **最終モデル `sac_final.zip` のみ**（ステージごとの最終モデルは保存せず checkpoints/ で補完）。
 - `--total-timesteps` は**全ステージ合計の上限（グローバル予算）**。総手数は必ずこの値以下になり、
   早く卒業した残り手数は次ステージへ回る。使い切ったら（卒業しきれず）中断。
+- **最終ステージ卒業後も予算が残っていれば継続**（`train.py` の post-loop ブロック）:
+  `GraduationCallback` が `learn()` を早期終了させるため最終ステージ卒業時に checkpoint が
+  欠落することを防ぐ。ループ後に `model.num_timesteps < total_timesteps` なら最終ステージ環境を
+  再構築し `reset_num_timesteps=False` で続きを走らせる（checkpoint が `total_timesteps` まで埋まる）。
 - **デモ配信（[`mvp3/ai_server.py`](src/block_stacker/mvp3/ai_server.py)）は常に最終ステージ**
   （全形状）でモデルを動かす。既定モデルは `sac_final.zip`→`sac_stage1_final.zip` の順で自動選択。
 
@@ -705,7 +709,7 @@ sac:
   ent_coef: "auto"
   target_update_interval: 1
   log_interval: 4
-  save_freq: 5000               # checkpoint 比較ヘルパー用に粗めに
+  checkpoint_splits: 5          # total_timesteps を等分した地点でcheckpointを保存
   features_dim: 128
 
 # 重みつきリプレイバッファの設定

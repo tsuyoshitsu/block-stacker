@@ -149,18 +149,18 @@ Logging to output\mvp2\tb\SAC_1                     ← グラフ用データ（
 ### 1-3. 保存と終了
 
 ```
-（学習中、output\mvp2\checkpoints\sac_stage{N}_<手数>_steps.zip が save_freq ごとに自動保存）
+（学習中、output\mvp2\checkpoints\sac_<手数>_steps.zip が total_timesteps の 20/40/60/80/100% 地点で自動保存）
 2026-... [mvp2.train] Saved final model: output\mvp2\sac_final.zip   ← 最終モデル（保存はこれだけ）
 ```
 
 - **保存される完成モデルは `sac_final.zip` のみ**（ステージごとの最終モデルは保存しない）。
   ステージ途中・各段階の様子は **checkpoints/ で補完**する。デモ（`ai_server`）は既定で `sac_final.zip` を読む。
 - checkpoint 名の `<手数>` はカリキュラムを通して連続した総タイムステップ。`--n-envs 6` だと
-  5000 ちょうどでは割り切れず `4998` のような数になる。
+  端数が生じ `19998` のような数になる（20% 地点の理論値 20000 との差は n_envs の端数）。
   [`tools/demo_checkpoints.ps1`](../tools/demo_checkpoints.ps1) が全ステージの checkpoint を
   この数で学習順に並べて再生する（再生環境は常に最終ステージ）。
-- 注意: ステージが `save_freq`（既定 約5000手）より早く卒業すると、そのステージの checkpoint は
-  残らないことがある（短いステージは間引かれる）。
+- checkpoint は学習の 20/40/60/80/100% 地点にほぼ 5 本生成される（`checkpoint_splits=5`）。
+  最終ステージ卒業後も `total_timesteps` まで走り続けるため、checkpoint が欠落することはない。
 
 ---
 
