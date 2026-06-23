@@ -159,6 +159,10 @@ def create_block(
         if enable_sleeping
         else p.ACTIVATION_STATE_DISABLE_SLEEPING
     )
+    # CCD (Continuous Collision Detection): 薄い三角柱が高速落下で地面を貫通する
+    # トンネリングを防ぐ。swept sphere 半径 = 最小寸法の半分。
+    # GEOM_MESH の凸包は離散衝突検出だけでは 1 ステップ (=1/240s) で貫通しうる。
+    ccd_radius = min(float(d) for d in shape.dims) * 0.5
     if physics is not None:
         p.changeDynamics(
             body_id,
@@ -172,9 +176,10 @@ def create_block(
             contactStiffness=physics.contact_stiffness,
             contactDamping=physics.contact_damping,
             activationState=activation,
+            ccdSweptSphereRadius=ccd_radius,
         )
     else:
-        p.changeDynamics(body_id, -1, activationState=activation)
+        p.changeDynamics(body_id, -1, activationState=activation, ccdSweptSphereRadius=ccd_radius)
 
     return Block(body_id=body_id, shape=shape, mass=mass)
 

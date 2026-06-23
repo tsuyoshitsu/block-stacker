@@ -6,7 +6,7 @@
     [6]    place_yaw
 
 XY are mapped linearly to work_area ranges.
-Z is mapped to [0, z_max / 2] (we don't ask the AI to place above some cap).
+Z is mapped to [0, place_z_max] — see below for how place_z_max is determined.
 Yaw is mapped to [-pi, pi].
 
 ----------------------------------------------------------------------
@@ -19,14 +19,18 @@ Yaw is mapped to [-pi, pi].
 設計上のポイント:
     - pickup_xyz: 「この座標に最も近い散乱ブロックを拾う」のクエリ。
       実際の選択は env._find_nearest_scattered (find_nearest_excluding) で argmin。
-    - place_xyz: 配置目標。z 範囲は [0, z_max/2]。
-      → 壁高 1.0m に対し z_max/2 = 1.5m なので、AI が壁高超に出す可能性あり。
-      MVP 3.5 の eval で実際に block が壁を超えた事例を確認（許容、設計書 §5）。
+    - place_xyz: 配置目標。z 範囲は [0, place_z_max_eff]。
+      place_z_max_eff は以下で算出（壁高クランプあり）:
+        place_z_max_eff = min(z_max/2, boundary_height - _APPROACH_OFFSET - _WALL_MARGIN)
+      キャリア軌跡のピーク = place_z + lift_height（最小 = approach_offset）。
+      ピーク ≤ place_z_max_eff + approach_offset = boundary_height - _WALL_MARGIN < boundary_height。
+      → AI が壁高を超える配置を指示しても確実に壁内に収まる。
     - place_yaw: cube では使わない（回転対称）。立方体以外の形状で必要。
 
 レビューで見る観点:
-    - place_z_max は world_cfg.z_max / 2 がデフォルト。デモで配置範囲を絞りたい
-      なら呼び出し側でカスタム値を渡せる。
+    - _APPROACH_OFFSET は physics.yaml の carrier_constraint.approach_height_offset と
+      同値にすること（physics_cfg の引き回しを避けるため定数で持つ）。
+    - place_z_max は呼び出し側で上書き可能（デモで範囲を絞るケース向け）。
 """
 from __future__ import annotations
 
@@ -37,6 +41,13 @@ import numpy as np
 from block_stacker.config import WorldConfig
 
 ACTION_DIM = 7
+
+# physics.yaml carrier_constraint.approach_height_offset と同値。
+# キャリアが目標より _APPROACH_OFFSET だけ高い地点を経由するため、
+# 軌跡ピーク = place_z + lift_height（最小 = _APPROACH_OFFSET）。
+_APPROACH_OFFSET: float = 0.05
+# ピーク高さと壁高さの最小差分（確実に壁内に収める安全マージン）。
+_WALL_MARGIN: float = 0.02
 
 
 def _to_range(a: float, lo: float, hi: float) -> float:
@@ -50,7 +61,10 @@ def decode_action(
 ) -> tuple[tuple[float, float, float], tuple[float, float, float], float]:
     """Return ((pickup_x, pickup_y, pickup_z), (place_x, place_y, place_z), yaw)."""
     if place_z_max is None:
-        place_z_max = world_cfg.z_max / 2.0
+        z_half = world_cfg.z_max / 2.0
+        # 壁高クランプ: ピーク(place_z + approach_offset) が壁未満になるよう上限を設ける。
+        wall_cap = world_cfg.boundary_height - _APPROACH_OFFSET - _WALL_MARGIN
+        place_z_max = min(z_half, wall_cap)
 
     a = np.clip(np.asarray(action, dtype=np.float64), -1.0, 1.0)
     x_min, x_max = world_cfg.x_range
