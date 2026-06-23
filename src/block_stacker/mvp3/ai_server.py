@@ -551,7 +551,16 @@ async def main_async(args: argparse.Namespace) -> None:
     serve_task = asyncio.create_task(server.serve_forever())
 
     try:
-        await asyncio.gather(physics_task, ai_task, serve_task)
+        if args.duration > 0:
+            try:
+                await asyncio.wait_for(
+                    asyncio.gather(physics_task, ai_task, serve_task),
+                    timeout=args.duration,
+                )
+            except asyncio.TimeoutError:
+                LOG.info("--duration %.1fs elapsed, shutting down", args.duration)
+        else:
+            await asyncio.gather(physics_task, ai_task, serve_task)
     finally:
         world.disconnect()
 
@@ -573,6 +582,8 @@ def main() -> None:
                         help="崩落リセット閾値。無指定ならステージ値")
     parser.add_argument("--thinking-pause", type=float, default=2.0)
     parser.add_argument("--settle-seconds", type=float, default=1.5)
+    parser.add_argument("--duration", type=float, default=0.0,
+                        help="再生秒数。0 または未指定なら無制限（常駐）")
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
     try:

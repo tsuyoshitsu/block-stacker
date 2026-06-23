@@ -3,10 +3,11 @@
 # ローカル学習で生成された checkpoint を一つずつデモ実行して、AI の「成長」を観察するヘルパー。
 #
 # 使い方:
-#   tools/demo_checkpoints.ps1                              # 対話モード（一つ選んで再生）
-#   tools/demo_checkpoints.ps1 -Mode auto                   # 全 checkpoint を順番に再生
-#   tools/demo_checkpoints.ps1 -Mode auto -Seconds 60       # 各 30 秒ずつ
-#   tools/demo_checkpoints.ps1 -CheckpointsDir output/mvp2/checkpoints
+#   tools/demo_checkpoints.ps1                                        # 対話モード（一つ選んで再生）
+#   tools/demo_checkpoints.ps1 -Mode auto                             # 全 checkpoint を順番に再生
+#   tools/demo_checkpoints.ps1 -Mode auto -Seconds 60                 # 各 60 秒ずつ
+#   tools/demo_checkpoints.ps1 -CheckpointsDir output\mvp2\checkpoints  # checkpoints/ を明示
+#   tools/demo_checkpoints.ps1 -CheckpointsDir output\weeks\2026-W26    # 週次モデルを再生
 #
 # 前提:
 #   - .venv が学習依存をインストール済み (pip install -e .)
@@ -45,16 +46,26 @@ function Get-Checkpoints {
         Write-Host "  .venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 100000" -ForegroundColor Yellow
         exit 1
     }
-    # checkpoint を拾う（sac_<steps>_steps.zip）。ステージ別ではなく、学習を通して
-    # 連続したステップ数で記録される 1 本の系列。ステップ数でソートすれば学習順に並ぶ。
-    # 再生は ai_server が常に最終ステージの世界で行う。
-    Get-ChildItem $Dir -Filter "sac_*_steps.zip" |
+    # 2 形式の ZIP を認識する:
+    #   sac_<steps>_steps.zip ... checkpoints/ の学習 checkpoint。
+    #                             総ステップ数をソートキーにして学習順に並べる。
+    #   step_NN.zip           ... curate_week.ps1 が生成する週次モデル（weeks/<週>/）。
+    #                             day 番号 (01=月 .. 05=金) をソートキーにして昇順に並べる。
+    Get-ChildItem $Dir -Filter "*.zip" |
         ForEach-Object {
             if ($_.Name -match "^sac_(\d+)_steps\.zip$") {
                 [PSCustomObject]@{
                     Steps    = [int]$Matches[1]
                     Name     = $_.Name
                     FullName = $_.FullName
+                    Label    = "$($Matches[1]) steps"
+                }
+            } elseif ($_.Name -match "^step_(\d+)\.zip$") {
+                [PSCustomObject]@{
+                    Steps    = [int]$Matches[1]
+                    Name     = $_.Name
+                    FullName = $_.FullName
+                    Label    = "day $($Matches[1])"
                 }
             }
         } |
@@ -93,7 +104,7 @@ Write-Host ""
 Write-Host "発見された checkpoint ($($checkpoints.Count) 件):" -ForegroundColor Cyan
 for ($i = 0; $i -lt $checkpoints.Count; $i++) {
     $ck = $checkpoints[$i]
-    "{0,3}: {1,8} steps  ({2})" -f $i, $ck.Steps, $ck.Name | Write-Host
+    "{0,3}: {1,-15}  ({2})" -f $i, $ck.Label, $ck.Name | Write-Host
 }
 
 # 選択
@@ -136,7 +147,7 @@ Stop-AiServer
 # 各 checkpoint を再生
 foreach ($ck in $selected) {
     Write-Host ""
-    Write-Host "=== Step $($ck.Steps) ($($ck.Name)) ===" -ForegroundColor Green
+    Write-Host "=== $($ck.Label) ($($ck.Name)) ===" -ForegroundColor Green
 
     $proc = Start-AiServer -ModelPath $ck.FullName
     Write-Host "  ai_server PID $($proc.Id)、 $Seconds 秒間再生..." -ForegroundColor DarkGray
