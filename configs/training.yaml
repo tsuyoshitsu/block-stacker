@@ -141,3 +141,14 @@ observation:
   # 遠い散布ブロックは枠からあぶれて見えない＝「子供の狭い視野」メタファー。
   max_blocks: 8
   heightmap_resolution: 32       # MVP 2: NxN heightmap grid
+
+resume:
+  # --resume 時の長期記憶（WeightedReplayBuffer）時間減衰設定。
+  # 経過日数 × steps_per_day ステップ分だけ内部時計（global_step）を進め、
+  # 前回学習終了から「時間が経った」ことによる記憶の自然な薄れを再現する。
+  # decay_rate は memory_system.decay_rate を流用する（別途変更不要）。
+  steps_per_day: 5000        # 1 日あたりの減衰換算ステップ数
+                             # 0.9999^5000 ≈ 0.607（≈1.4 日で記憶重みが半減）
+  # 以下は手動上書き用（null = 自動算出）。
+  elapsed_days: null         # 日数を直接指定（null = resume_state.json の timestamp 差から自動）
+  elapsed_steps: null        # ステップ数を直接指定（最優先、null = 使わない）

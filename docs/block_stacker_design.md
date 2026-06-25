@@ -197,6 +197,32 @@ observation = {
 | 4 | `success` | placement 成功（記録未更新）※報酬は「置いた高さ」で補正（§報酬） | 0.3 |
 | 5 | `no_progress` | 上記いずれにも該当しない | 0.1 |
 
+#### 学習の引き継ぎ（--resume）
+
+`--resume` フラグで前回の学習状態を引き継いで続きから学習できる。引き継ぐのは **勘** と **長期記憶**
+の 2 層のみ。短期記憶（recent_* deque）は `env.reset()` で自動クリアされるため何もしない（設計通り）。
+
+| 引き継ぐもの | 方法 | 減衰 |
+|------|------|------|
+| **勘（NN重み）** | `sac_final.zip` から `SAC.load()` | そのまま（無加工） |
+| **長期記憶（リプレイバッファ）** | `replay_buffer.pkl` から `load_replay_buffer()` | 経過日数 × `steps_per_day` だけ `global_step` を加算し、全記憶の age を増やして重みを一律減衰 |
+
+**減衰の仕組み（Method A）**: `replay_buffer.global_step += elapsed_steps` で
+全スロットの `age = global_step - birth_steps` が同時に増加し、現在重み = `initial_w × decay_rate^age`
+が一斉に古くなる。強い記憶（`collapse` 初期重み 1.0）は弱い記憶（`no_progress` 0.1）
+より長く生き残る（`weight_floor` が下限）。
+
+学習完了時に `replay_buffer.pkl` と `resume_state.json` が `output/mvp2/` に**毎回**保存される。
+`resume_state.json` には `num_timesteps`, `next_stage_id`, `completed_stages`, `timestamp` が記録される。
+
+設定（`configs/training.yaml` の `resume:` セクション）:
+
+| キー | 既定 | 説明 |
+|-----|------|------|
+| `steps_per_day` | 5000 | 1 日あたりの減衰換算ステップ数（`0.9999^5000 ≈ 0.607`、≈1.4 日で半減） |
+| `elapsed_days` | null | 経過日数を手動指定（null = timestamp 差から自動算出） |
+| `elapsed_steps` | null | ステップ数を直接指定（最優先、null = 未使用） |
+
 ### 観測空間 (Dict)
 
 #### ブロックストリーム

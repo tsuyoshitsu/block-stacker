@@ -41,8 +41,10 @@ Run:
 from __future__ import annotations
 
 import argparse
+import json
 import logging
 import multiprocessing as mp
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Callable
 
@@ -68,6 +70,28 @@ from block_stacker.policy.feature_extractor import HybridFeatureExtractor
 from block_stacker.policy.weighted_replay_buffer import WeightedReplayBuffer
 
 LOG = logging.getLogger("mvp2.train")
+
+
+def _compute_elapsed_steps(resume_cfg: dict[str, Any], resume_state: dict[str, Any]) -> int:
+    """--resume 時に長期記憶（WeightedReplayBuffer）の global_step へ加算するステップ数を算出。
+
+    優先順位: elapsed_steps（直接指定）> elapsed_days（日数）> timestamp 差から自動算出。
+    """
+    if resume_cfg.get("elapsed_steps") is not None:
+        return max(0, int(resume_cfg["elapsed_steps"]))
+    steps_per_day = int(resume_cfg.get("steps_per_day", 5000))
+    if resume_cfg.get("elapsed_days") is not None:
+        return max(0, int(resume_cfg["elapsed_days"])) * steps_per_day
+    # 自動: resume_state.json の timestamp から経過日数を計算
+    ts = resume_state.get("timestamp")
+    if ts:
+        prev = datetime.fromisoformat(ts)
+        now = datetime.now()
+        if prev.tzinfo is not None:
+            prev = prev.replace(tzinfo=None)
+        days = max(0, (now - prev).days)
+        return days * steps_per_day
+    return 0
 
 
 def _make_env(
@@ -116,6 +140,10 @@ def main() -> None:
                         help="use SubprocVecEnv when n_envs > 1 (default on)")
     parser.add_argument("--output-dir", type=Path, default=Path("./output/mvp2"))
     parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument("--resume", action="store_true", default=False,
+                        help="前回の学習を --output-dir から引き継いで続きから学習する。"
+                             "勘（NN重み）と長期記憶（replay_buffer.pkl）を復元し、"
+                             "長期記憶には経過日数×steps_per_day 分の時間減衰を適用する。")
     parser.add_argument("--curriculum", action=argparse.BooleanOptionalAction, default=True,
                         help="Stage 1→N を順に自動学習（既定 ON）。--no-curriculum で Stage 1 のみ")
     parser.add_argument("--start-stage", type=int, default=1,
@@ -143,6 +171,7 @@ def main() -> None:
     grad_cfg = curr_cfg.get("graduation", {})
     # 環境変数 BS_GRADUATION_* > training.yaml > 既定値 で解決。
     grad_window, grad_threshold, grad_ratio = resolve_graduation(grad_cfg)
+    resume_cfg = training_cfg.get("resume", {})
 
     total_timesteps = args.total_timesteps or sac_cfg["total_timesteps"]
     n_envs = args.n_envs or sac_cfg.get("n_envs", 1)
@@ -250,11 +279,79 @@ def main() -> None:
         name_prefix="sac",
     )
 
+    # 再開状態のトラッキング（終了時に replay_buffer.pkl / resume_state.json へ保存）
+    completed_stages: list[int] = []
+    last_active_stage_id: int | None = None
+
+    # --- Resume: 前回の学習状態を読み込む ---
+    # 勘（NN重み）と長期記憶（WeightedReplayBuffer）を引き継ぐ。
+    # 短期記憶 (recent_* deque) は env.reset() で自動クリアされるため何もしない（設計通り）。
+    model: SAC | None = None
+    if args.resume:
+        sac_path = args.output_dir / "sac_final.zip"
+        buf_path = args.output_dir / "replay_buffer.pkl"
+        state_path = args.output_dir / "resume_state.json"
+        if not sac_path.exists():
+            raise SystemExit(
+                f"--resume 指定だが {sac_path} が見つかりません。初回学習後に再実行してください。"
+            )
+        resume_state: dict[str, Any] = {}
+        if state_path.exists():
+            with state_path.open("r", encoding="utf-8-sig") as f:
+                resume_state = json.load(f)
+            LOG.info(
+                "--resume: num_timesteps=%d, next_stage=%s, completed=%s",
+                resume_state.get("num_timesteps", "?"),
+                resume_state.get("next_stage_id", "?"),
+                resume_state.get("completed_stages", []),
+            )
+        else:
+            LOG.warning(
+                "resume_state.json が見つかりません: NN重みのみロードし Stage 1 から再開します"
+            )
+        # カリキュラム進捗を復元: next_stage_id 以降のステージのみ実行
+        resume_next = resume_state.get("next_stage_id")
+        if resume_next is not None:
+            filtered = [s for s in run_stages if s.get("id", 1) >= resume_next]
+            if filtered:
+                run_stages = filtered
+            else:
+                LOG.warning(
+                    "next_stage_id=%s 以降のステージがありません。全ステージで再開します。",
+                    resume_next,
+                )
+        completed_stages = list(resume_state.get("completed_stages", []))
+        # 勘（NN重み・オプティマイザ・num_timesteps）をロード
+        LOG.info("--resume: NN重みを %s からロード", sac_path)
+        model = SAC.load(str(sac_path))
+        # 長期記憶（WeightedReplayBuffer）をロード
+        if buf_path.exists():
+            model.load_replay_buffer(str(buf_path))
+            if hasattr(model.replay_buffer, "global_step"):
+                elapsed = _compute_elapsed_steps(resume_cfg, resume_state)
+                if elapsed > 0:
+                    old_gs = model.replay_buffer.global_step
+                    model.replay_buffer.global_step += elapsed
+                    LOG.info(
+                        "長期記憶: %d ステップ分の時間減衰を適用 "
+                        "(global_step %d → %d, decay_rate^%d ≈ %.4f)",
+                        elapsed, old_gs, model.replay_buffer.global_step,
+                        elapsed, model.replay_buffer.decay_rate ** min(elapsed, 50000),
+                    )
+                else:
+                    LOG.info("長期記憶: 経過0日のため減衰なし")
+            else:
+                LOG.info("長期記憶: 標準バッファのため減衰スキップ")
+        else:
+            LOG.warning(
+                "replay_buffer.pkl が見つかりません: 長期記憶はゼロから開始します (%s)", buf_path
+            )
+
     # --- ステージを順に学習。観測空間は全 stage 共通なので、同じ model を
     #     set_env() で env だけ付け替える（NN も記憶バッファも引き継ぐ）。 ---
-    model: SAC | None = None
     for stage in run_stages:
         stage_id = stage.get("id", 1)
+        last_active_stage_id = stage_id
         # グローバル予算を使い切っていたら、以降のステージは学習しない。
         if model is not None and model.num_timesteps >= total_timesteps:
             LOG.warning("グローバル予算 %d を使い切ったため Stage %s 以降は学習しません。",
@@ -322,6 +419,7 @@ def main() -> None:
             if grad_cb.graduated:
                 LOG.info("Stage %s graduated (success_rate=%.2f).",
                          stage_id, grad_cb.success_rate)
+                completed_stages.append(stage_id)
             else:
                 LOG.warning(
                     "Stage %s did NOT graduate (success_rate=%.2f < %.2f). "
@@ -344,6 +442,7 @@ def main() -> None:
         )
         continuation_env = build_vec_env(final_stage)
         model.set_env(continuation_env)
+        last_active_stage_id = final_stage.get("id")
         # GraduationCallback は False を返すと learn() を止めてしまうため使えない。
         # StageMonitorCallback で curriculum/stage・success_rate のみ継続記録する。
         continuation_monitor = StageMonitorCallback(
@@ -363,6 +462,33 @@ def main() -> None:
     final_path = args.output_dir / "sac_final.zip"
     model.save(str(final_path))
     LOG.info("Saved final model: %s (途中は checkpoints/ 参照)", final_path)
+
+    # 長期記憶（リプレイバッファ）を毎回保存（--resume 時に利用）。
+    buf_save_path = args.output_dir / "replay_buffer.pkl"
+    model.save_replay_buffer(str(buf_save_path))
+    LOG.info("長期記憶を保存: %s", buf_save_path)
+
+    # 再開状態を JSON に保存（次回 --resume で参照）。
+    next_stage = (
+        last_active_stage_id
+        if last_active_stage_id is not None
+        else run_stages[0].get("id", 1)
+    )
+    resume_out: dict[str, Any] = {
+        "num_timesteps": int(model.num_timesteps),
+        "total_timesteps": int(total_timesteps),
+        "buffer_global_step": int(getattr(model.replay_buffer, "global_step", 0)),
+        "next_stage_id": next_stage,
+        "completed_stages": completed_stages,
+        "timestamp": datetime.now().isoformat(),
+    }
+    state_out_path = args.output_dir / "resume_state.json"
+    with state_out_path.open("w", encoding="utf-8") as f:
+        json.dump(resume_out, f, indent=2, ensure_ascii=False)
+    LOG.info(
+        "Resume state saved: %s (next_stage=%s, completed=%s)",
+        state_out_path, next_stage, completed_stages,
+    )
 
 
 if __name__ == "__main__":

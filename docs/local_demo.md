@@ -90,6 +90,23 @@
   → 週次配信の `step_01..05.zip` と 1 対 1 で対応する設計。
 - `output/mvp2/tb/` に TensorBoard ログが書かれる
 - `output/mvp2/sac_final.zip`（最終モデルのみ）が保存される。ステージごとの最終モデルは保存せず、checkpoints/ で補完
+- `output/mvp2/replay_buffer.pkl`（長期記憶）と `output/mvp2/resume_state.json` が**毎回**保存される（次回 `--resume` で利用）
+
+#### 前回の学習を引き継ぐ（--resume）
+
+前回の学習が終わった後、続きから学習を再開できる。**勘（NN重み）** と **長期記憶（replay buffer）**
+を引き継ぎ、長期記憶には「前回終了からの経過日数×5000 step 分の時間減衰」を自動適用する。
+
+```powershell
+# 初回学習（100,000 ステップ）を済ませてから続きを学習
+.venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 200000 --resume
+```
+
+- **経過日数は自動算出**（`resume_state.json` の `timestamp` から現在時刻との差を計算）。
+- 減衰の強さを調整したいときは `configs/training.yaml` の `resume.steps_per_day`（既定 5000）を変更。
+- テスト用に手動で経過日数を指定するには `resume.elapsed_days` を設定するか、
+  `resume_state.json` の `timestamp` を書き換える。
+- カリキュラム進捗も引き継がれ、`resume_state.json` の `next_stage_id` から再開する。
 
 別ターミナルで TensorBoard を起動すると学習曲線がリアルタイムで見られる：
 
