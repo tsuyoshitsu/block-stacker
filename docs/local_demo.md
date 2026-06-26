@@ -11,7 +11,7 @@
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ 1. 学習を回す                                            │
-│    python -m block_stacker.mvp2.train --total-timesteps 100000│
+│    python -m block_stacker.mvp2.train --total-timesteps 4000  │
 │    → output/mvp2/checkpoints/ に sac_5000_steps.zip...  │
 └──────────────────────────────────────────────────────────┘
                             │
@@ -71,13 +71,13 @@
 
 ```powershell
 # 全ステージ（既定。フラグ不要でカリキュラム ON）
-.venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 100000
+.venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000
 
 # まず Stage 1→2 だけ試す
-.venv\Scripts\python.exe -m block_stacker.mvp2.train --max-stage 2 --n-envs 6 --total-timesteps 100000
+.venv\Scripts\python.exe -m block_stacker.mvp2.train --max-stage 2 --n-envs 6 --total-timesteps 4000
 
-# 単一ステージだけ素早く確認したいとき（Stage 1 のみ、約 10 分）
-.venv\Scripts\python.exe -m block_stacker.mvp2.train --no-curriculum --n-envs 6 --total-timesteps 100000
+# 単一ステージだけ素早く確認したいとき（Stage 1 のみ）
+.venv\Scripts\python.exe -m block_stacker.mvp2.train --no-curriculum --n-envs 6 --total-timesteps 4000
 ```
 > 新人 AI は短い予算だと卒業条件に届かず「卒業せず中断」になる。進行そのものを素早く見たいだけなら
 > `configs/training.yaml` の `graduation.threshold` を下げる／`ratio` を下げる（目標を低く）。
@@ -99,7 +99,7 @@
 
 ```powershell
 # 初回学習（100,000 ステップ）を済ませてから続きを学習
-.venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 200000 --resume
+.venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000 --resume
 ```
 
 - **経過日数は自動算出**（`resume_state.json` の `timestamp` から現在時刻との差を計算）。
@@ -298,12 +298,11 @@ i7-10750H (6 物理コア) 想定:
 
 | total_timesteps | 学習時間 | checkpoint 数 | デモ全部見るのに |
 |---------|---------|------------|----------|
-| 30,000 | 約 8 分 | 6 個 | 各 60s で 6 分 |
-| 100,000 | 約 25 分 | 20 個 | 各 60s で 20 分 |
-| 500,000 | 約 2 時間 | 100 個 | auto モード 30s で 50 分 |
-| 1,000,000 | 約 4 時間 | 200 個 | auto モード 30s で 100 分 |
+| **4,000** (週次標準) | **約 1 分** | **5 個** | **各 60s で 5 分** |
+| 500,000 | 約 2 時間 | 5 個 | 各 60s で 5 分 |
+| 1,000,000 | 約 4 時間 | 5 個 | auto モード 30s で 2.5 分 |
 
-→ 最初は `100,000` から試して、感触掴んでから本格学習を回すのがおすすめ。
+→ 週次配信は `4,000` が標準（checkpoint_splits=5 で 800 刻み 5 本）。本格学習は 500k+ 推奨。
 
 ## クラウド学習との関係
 
@@ -352,7 +351,7 @@ aws s3 cp output\mvp2\sac_final.zip s3://bs-app-$ACCOUNT/models/latest.pt
 
 ```powershell
 # 1. 学習を実行（total_timesteps を 5 等分した地点で checkpoint が生成される）
-.venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 100000
+.venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000
 
 # 2. checkpoint をキュレーション（今週の weeks/<YYYY-WNN>/ を生成）
 tools\curate_week.ps1
@@ -382,7 +381,7 @@ Register-ScheduledTask -TaskName "BlockStacker-AdvanceDay" `
 # 学習完了後に手動で curate_week.ps1 を実行する。
 $triggerCur = New-ScheduledTaskTrigger -Weekly -DaysOfWeek Sunday -At "08:00"
 $actionCur  = New-ScheduledTaskAction -Execute "powershell.exe" `
-    -Argument "-NonInteractive -ExecutionPolicy Bypass -Command `".venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 100000; tools\curate_week.ps1 -Force`"" `
+    -Argument "-NonInteractive -ExecutionPolicy Bypass -Command `".venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000; tools\curate_week.ps1 -Force`"" `
     -WorkingDirectory $root
 Register-ScheduledTask -TaskName "BlockStacker-WeeklyCurate" `
     -Trigger $triggerCur -Action $actionCur -Force

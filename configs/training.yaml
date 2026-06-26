@@ -62,7 +62,7 @@ curriculum:
       h_low: 0.12
 
 sac:
-  total_timesteps: 30000         # MVP 1/2 verification (本格は 1M+ 推奨, Dockerfile.learner 参照)
+  total_timesteps: 4000          # 週次配信標準 (checkpoint_splits=5 で 800 刻み 5 本; 本格は 1M+ 推奨)
   # c6a.4xlarge (AMD EPYC, 8 物理コア) の物理コア飽和点。
   # SAC は train_freq が低いほど on-step 学習が重く、CPU が物理 step より遅い場合は
   # n_envs を上げすぎても train が間に合わない。8 は安全側。
