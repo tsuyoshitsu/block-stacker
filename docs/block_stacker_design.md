@@ -204,7 +204,7 @@ observation = {
 
 | 引き継ぐもの | 方法 | 減衰 |
 |------|------|------|
-| **勘（NN重み）** | `sac_final.zip` から `SAC.load()` | そのまま（無加工） |
+| **勘（NN重み）** | `fresh/` / `played/` の最大ステップ checkpoint から `SAC.load()` | そのまま（無加工） |
 | **長期記憶（リプレイバッファ）** | `replay_buffer.pkl` から `load_replay_buffer()` | 経過日数 × `steps_per_day` だけ `global_step` を加算し、全記憶の age を増やして重みを一律減衰 |
 
 **減衰の仕組み（Method A）**: `replay_buffer.global_step += elapsed_steps` で
@@ -401,7 +401,7 @@ all_placed = 散布0 を達成                     # 即卒業のトリガー（
 - `GraduationCallback` が成功率 ≥ `threshold` を満たすと `learn()` を早期終了し次ステージへ。
 - 観測空間は全ステージ共通（`max_blocks=8` 等で固定）なので、**同じ NN・記憶バッファを
   `model.set_env()` で引き継いだまま** env だけ差し替える。タイムステップ計数・TensorBoard も連続。
-- 保存: **最終モデル `sac_final.zip` のみ**（ステージごとの最終モデルは保存せず checkpoints/ で補完）。
+- 保存: `fresh/sac_<steps>_steps.zip` として `checkpoint_splits`（既定 5）等分地点で保存。`sac_final.zip` は廃止。
 - `--total-timesteps` は**全ステージ合計の上限（グローバル予算）**。総手数は必ずこの値以下になり、
   早く卒業した残り手数は次ステージへ回る。使い切ったら（卒業しきれず）中断。
 - **最終ステージ卒業後も予算が残っていれば継続**（`train.py` の post-loop ブロック）:
@@ -409,7 +409,7 @@ all_placed = 散布0 を達成                     # 即卒業のトリガー（
   欠落することを防ぐ。ループ後に `model.num_timesteps < total_timesteps` なら最終ステージ環境を
   再構築し `reset_num_timesteps=False` で続きを走らせる（checkpoint が `total_timesteps` まで埋まる）。
 - **デモ配信（[`mvp3/ai_server.py`](src/block_stacker/mvp3/ai_server.py)）は常に最終ステージ**
-  （全形状）でモデルを動かす。既定モデルは `output/mvp2/sac_final.zip` を自動選択。
+  （全形状）でモデルを動かす。既定モデルは `fresh/` / `played/` の最大ステップ checkpoint を自動選択。
 
 ### Stage 情報の取り扱い
 

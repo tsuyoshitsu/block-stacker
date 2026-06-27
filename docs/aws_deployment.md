@@ -194,7 +194,8 @@ docker push "$REGISTRY/block-stacker/learner:latest"
 ### 3.3 学習済みモデルを S3 に上げる（任意、初回はスキップ可）
 
 ```powershell
-aws s3 cp output/mvp2/sac_final.zip s3://bs-app-$ACCOUNT/models/latest.pt
+$model = (Get-ChildItem "output\mvp2\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
+aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 ```
 
 未アップロードの場合、デモ EC2 起動時にモデルが無いのでエラーログが出ます。
@@ -267,10 +268,10 @@ cd C:\Users\iii03\block-stacker\lambda
 > （`Dockerfile.learner` の `CMD` でも明示）。Stage 1→5 を自動進行する。`--total-timesteps`=1M は
 > **全ステージ合計の上限（グローバル予算）**で、**総手数は必ず 1M 以下**＝起動時間・コストが見積もれる。
 > 各ステージは **散布0で即卒業**または**目標高さ到達の成功率 0.6**で卒業し、早く卒業した残りは次へ回る。
-> 使い切ったら中断。成果は **最終 `sac_final.zip` のみ**（＋ checkpoints/）を S3 に保存。
+> 使い切ったら中断。成果は `fresh/sac_*_steps.zip`（等分 5 本）を S3 に保存（`sac_final.zip` は廃止）。
 > Stage 1 のみに戻すなら `CMD` に `--no-curriculum` を渡す（既定 ON なので `--curriculum` を外すだけでは無効化されない）。
 > **デモ EC2 の `ai_server` は常に最終ステージ（全形状）でモデルを動かし**、既定モデルは
-> `output/mvp2/sac_final.zip` を自動選択する。
+> `fresh/` / `played/` の最大ステップ checkpoint を自動選択する。
 >
 > **卒業条件はコンテナ環境変数で上書き可**（優先順位: env var > training.yaml > 既定）。
 > ECS タスク定義 / `docker run -e` で渡す：
@@ -397,8 +398,9 @@ aws s3 cp configs/training.yaml s3://bs-app-$ACCOUNT/configs/training.yaml
 # ローカルで再訓練
 .venv\Scripts\python.exe -m block_stacker.mvp2.train --total-timesteps 4000 --n-envs 4
 
-# S3 にアップロード
-aws s3 cp output/mvp2/sac_final.zip s3://bs-app-$ACCOUNT/models/latest.pt
+# S3 にアップロード（fresh/ の最大ステップ checkpoint を最新モデルとして）
+$model = (Get-ChildItem "output\mvp2\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
+aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 # デモ EC2 は次回 collapse 時 (or 再起動時) に S3 からモデル再ロード
 ```
 
@@ -1028,7 +1030,7 @@ memory_system:
 
 - `--n-envs 6`: 物理コア数に合わせる（クラウドは 8、ローカルは 4〜6）
 - `--total-timesteps 4000`: 週次配信標準。約 1 分で 5 本の checkpoint（20/40/60/80/100% 地点）
-- `output/mvp2/checkpoints/sac_<N>_steps.zip` が `total_timesteps` の等分地点（`checkpoint_splits=5`）で保存（ステージ番号はファイル名に含まれない）
+- `output/mvp2/fresh/sac_<N>_steps.zip` が `total_timesteps` の等分地点（`checkpoint_splits=5`）で保存（ステージ番号はファイル名に含まれない。`sac_final.zip` は廃止）
 
 ### G.2 TensorBoard で学習曲線を見る（別ターミナル）
 
@@ -1040,9 +1042,8 @@ memory_system:
 ### G.3 Godot クライアントで AI の動きを見る
 
 ```powershell
-# 1. サーバ
-.venv\Scripts\python.exe -m block_stacker.mvp3.ai_server `
-    --model output\mvp2\sac_final.zip --host 127.0.0.1
+# 1. サーバ（--model 無指定なら fresh/ / played/ の最大ステップ checkpoint を自動選択）
+.venv\Scripts\python.exe -m block_stacker.mvp3.ai_server --host 127.0.0.1
 
 # 2. Godot
 & "D:\Godot_v4.4.1-stable_mono_win64\Godot_v4.4.1-stable_mono_win64.exe" `
@@ -1071,7 +1072,8 @@ tools\demo_checkpoints.ps1 -Mode auto -Seconds 30 -LaunchGodot
 
 ```powershell
 $ACCOUNT = aws sts get-caller-identity --query Account --output text
-aws s3 cp output\mvp2\sac_final.zip s3://bs-app-$ACCOUNT/models/latest.pt
+$model = (Get-ChildItem "output\mvp2\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
+aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 ```
 
 → 次回クラウドデモ起動時に S3 から自動取得して使用される。
@@ -1123,7 +1125,7 @@ aws s3 cp output\mvp2\sac_final.zip s3://bs-app-$ACCOUNT/models/latest.pt
 
 ### モデルの準備
 
-- [ ] ローカルで `mvp2.train` を回して `output/mvp2/sac_final.zip` 生成
+- [ ] ローカルで `mvp2.train` を回して `output/mvp2/fresh/` に checkpoint 生成
 - [ ] `aws s3 cp` で S3 にアップロード (`s3://bs-app-<ACCOUNT>/models/latest.pt`)
 - [ ] クラウドデモ起動時に S3 から取り込まれることを確認
 
