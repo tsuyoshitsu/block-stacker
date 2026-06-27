@@ -49,9 +49,9 @@ pybullet build time: May 30 2026 15:47:27           ← 物理シミュの起動
 2026-... [mvp2.train] Curriculum: stages [1, 2, 3, 4, 5], graduate at success_rate >= 0.60 over 30 eps
 2026-... [mvp2.train] === Stage 1: Stage 1: cube だけ・低い目標 ===
 2026-... [mvp2.train] Inventory: {'cube': 8}, target_height=0.240 (=満積み×0.60), h_high=0.075, h_low=0.025        ← この段階で使うブロック（cube 8 個）
-2026-... [mvp2.train] Total timesteps/stage: 100000, n_envs: 6, subproc=True, stm_length=5
+2026-... [mvp2.train] Total timesteps (全ステージ合計の上限): 4000, n_envs: 6, subproc=True, stm_length=5
 2026-... [mvp2.train] Memory system enabled: True   ← 記憶のしくみが ON
-2026-... [mvp2.train] Beginning training (stage 1, budget=100000 steps)...  ← このステージの学習開始
+2026-... [mvp2.train] Beginning training (stage 1; 残り予算 4000 / 全体 4000)...  ← このステージの学習開始
 Using cpu device                                    ← CPU で計算している
 Logging to output\mvp2\tb\SAC_1                     ← グラフ用データ（カリキュラムを通して連続）
    …（学習が進む。数値のまとめ表が繰り返し出る → §1-2）…
@@ -71,7 +71,7 @@ Logging to output\mvp2\tb\SAC_1                     ← グラフ用データ（
 | `Stage N graduated (success_rate=...)` | 卒業 → 次ステージへ。届かず予算切れなら `Stage N did NOT graduate ... 中断` |
 | `[graduation] all blocks placed (散布0) -> GRADUATE` | **散布0を達成して即卒業**（成功率を待たない fast-track） |
 | `pybullet build time` | 物理シミュの起動表示。**`--n-envs 6` なら 6 回出るのが正常**（6 個同時に動かすから） |
-| `Total timesteps/stage / n_envs / stm_length` | 実際に使われた設定値。`stm_length=5` なら「直近 5 手の記憶」を AI が見ている |
+| `Total timesteps / n_envs / stm_length` | 実際に使われた設定値。`stm_length=5` なら「直近 5 手の記憶」を AI が見ている |
 | `Memory system enabled: True` | 記憶のしくみ（重要度＋高さ補正＋減衰＋重みつき抽選）が効いている |
 | `Using cpu device` | `cpu` と出れば正常（このパソコンは CPU で学習する前提） |
 
@@ -150,11 +150,15 @@ Logging to output\mvp2\tb\SAC_1                     ← グラフ用データ（
 
 ```
 （学習中、output\mvp2\checkpoints\sac_<手数>_steps.zip が total_timesteps の 20/40/60/80/100% 地点で自動保存）
-2026-... [mvp2.train] Saved final model: output\mvp2\sac_final.zip   ← 最終モデル（保存はこれだけ）
+2026-... [mvp2.train] Saved final model: output\mvp2\sac_final.zip (途中は checkpoints/ 参照)
+2026-... [mvp2.train] 長期記憶を保存: output\mvp2\replay_buffer.pkl
+2026-... [mvp2.train] Resume state saved: output\mvp2\resume_state.json (next_stage=2, completed=[1])
 ```
 
 - **保存される完成モデルは `sac_final.zip` のみ**（ステージごとの最終モデルは保存しない）。
   ステージ途中・各段階の様子は **checkpoints/ で補完**する。デモ（`ai_server`）は既定で `sac_final.zip` を読む。
+- **`replay_buffer.pkl`（長期記憶）と `resume_state.json`** は毎回保存される。次回 `--resume` で
+  NN 重み・長期記憶・カリキュラム進捗（`next_stage_id`）を引き継いで再開できる。
 - checkpoint 名の `<手数>` はカリキュラムを通して連続した総タイムステップ。`--n-envs 6` だと
   端数が生じ `19998` のような数になる（20% 地点の理論値 20000 との差は n_envs の端数）。
   [`tools/demo_checkpoints.ps1`](../tools/demo_checkpoints.ps1) が全ステージの checkpoint を

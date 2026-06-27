@@ -395,7 +395,7 @@ aws s3 cp configs/training.yaml s3://bs-app-$ACCOUNT/configs/training.yaml
 
 ```powershell
 # ローカルで再訓練
-uv run python -m block_stacker.mvp2.train --total-timesteps 100000 --n-envs 4
+.venv\Scripts\python.exe -m block_stacker.mvp2.train --total-timesteps 4000 --n-envs 4
 
 # S3 にアップロード
 aws s3 cp output/mvp2/sac_final.zip s3://bs-app-$ACCOUNT/models/latest.pt
@@ -819,6 +819,10 @@ WsClient.cs が ReadPoseTransform で Godot Y-up に変換: (x, y, z) → (x, z,
 
 ### F.1 記憶バッファの永続化（save_replay_buffer / load_replay_buffer）
 
+> **✅ ローカル学習では実装済み**（`mvp2/train.py` の `--resume` 機能）。学習完了時に
+> `output/mvp2/replay_buffer.pkl` と `resume_state.json` が保存され、次回 `--resume` で復元。
+> AWS 側への S3 自動アップロード（learner.sh への追加）は未実装（残 TODO）。
+
 **何ができるか:** 長期記憶（WeightedReplayBuffer）の中身を pickle で S3 に保存し、
 次回起動時に復元する。「**先週の続きの子供**」として AI を再開できる。
 
@@ -827,15 +831,12 @@ WsClient.cs が ReadPoseTransform で Godot Y-up に変換: (x, y, z) → (x, z,
 - Spot 中断時の記憶復旧
 - 配信視聴者にとっての「**だんだん上手くなる**」感の演出強化
 
-**実装規模:** SB3 標準の `save_replay_buffer()` / `load_replay_buffer()` が使える。
-追加コード約 25〜50 行（圧縮対応含めて）。
-
 **ファイルサイズ目安:** 50,000 件で約 1.7 GB（gzip 圧縮で 500 MB 程度）。
 S3 ストレージコスト微少、転送料も微少。
 
 **設計判断ポイント:**
-- 保存頻度: 学習終了時のみ / 5 分毎 / Spot 中断時
-- ストレージ: S3 (`bs-app-*/replay_buffers/`)
+- 保存頻度: 学習終了時のみ（現実装）/ 5 分毎 / Spot 中断時
+- ストレージ: S3 (`bs-app-*/replay_buffers/`)（AWS 側は未実装）
 - バッファサイズが大きいので、容量や heightmap 解像度の見直しも検討余地
 
 **関連議論:** 「**この長期記憶って保存できる？**」（チャット履歴）
@@ -844,37 +845,23 @@ S3 ストレージコスト微少、転送料も微少。
 
 ### F.2 起動オフ期間中の重み減衰（sleep decay）
 
+> **✅ ローカル学習では実装済み**（`mvp2/train.py` の `--resume` 機能）。`resume_state.json`
+> の `timestamp` から経過日数を自動算出し、`global_step += elapsed_days × steps_per_day` で
+> 全記憶を一括減衰。`configs/training.yaml` の `resume.steps_per_day`（既定 5000）で強度調整可。
+> AWS 側（learner.sh での S3 連携）は未実装（F.1 の S3 実装と合わせて対応）。
+
 **何ができるか:** EC2 が止まっている時間（金曜夜〜土曜昼など）も、**現実時間の
 経過に応じて長期記憶の重みを減衰**させる。
 
-**現状の挙動:**
-- 重み減衰は「ステップ数ベース」（global_step ベース）
-- EC2 が止まっている間は時間が止まる
-- リアルじゃない（「**休んでも記憶は何時間か薄れる**」が表現できない）
-
-**提案する方式:**
-- `WeightedReplayBuffer` に `last_save_timestamp` を持たせる
-- ロード時に経過時間（Unix epoch 差分）から sleep_decay を計算
-- 全エントリの重みを一括減衰（実装的には `global_step` を進めるだけ）
-
-**設定例:**
-```yaml
-memory_system:
-  decay_rate: 0.9999          # 学習中の 1 step あたり
-  sleep_decay_per_hour: 0.99  # 停止中の 1 時間あたり
-```
-
-**実装規模:** 約 25 行（F.1 の永続化と同時実装が自然）。
+**実装済みの方式:**
+- `resume_state.json` に `timestamp` を保存（学習終了時刻）
+- `--resume` 時に現在時刻との差を日数換算し `elapsed_days × steps_per_day` だけ `global_step` を加算
+- 全エントリの重みを一括減衰（`decay_rate^elapsed_steps` ≈ 7 日で 0.03 程度）
 
 **子供メタファー的意義:** 「**人間の脳科学的にも正しい設計**」
 - 起きてる時は普通に時間経過で記憶が薄れる
 - 寝てる間も、ゆっくり薄れる（強烈な記憶ほど残る）
 - 重要なイベントは何ヶ月経っても完全には消えない
-
-**設定の応用:**
-- イベント種別ごとに `sleep_decay_per_hour` を変えると、「**怖い夢で何度も思い出
-  すから、休んでも忘れにくい崩落**」みたいなノリで「**睡眠中の記憶定着**」
-  （メモリ・コンソリデーション）も模擬できる
 
 **関連議論:** 「**記憶の重み減衰はタイムスタンプとかを用いて...**」（チャット履歴）
 
@@ -1036,11 +1023,11 @@ memory_system:
 
 ```powershell
 # 6 物理コアの PC を想定（i7-10750H 等）
-.venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 100000
+.venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000
 ```
 
 - `--n-envs 6`: 物理コア数に合わせる（クラウドは 8、ローカルは 4〜6）
-- `--total-timesteps 100000`: 約 25 分で 5 本の checkpoint（20/40/60/80/100% 地点）
+- `--total-timesteps 4000`: 週次配信標準。約 1 分で 5 本の checkpoint（20/40/60/80/100% 地点）
 - `output/mvp2/checkpoints/sac_<N>_steps.zip` が `total_timesteps` の等分地点（`checkpoint_splits=5`）で保存（ステージ番号はファイル名に含まれない）
 
 ### G.2 TensorBoard で学習曲線を見る（別ターミナル）
