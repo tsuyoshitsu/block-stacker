@@ -149,20 +149,21 @@ Logging to output\mvp2\tb\SAC_1                     ← グラフ用データ（
 ### 1-3. 保存と終了
 
 ```
-（学習中、output\mvp2\fresh\sac_<手数>_steps.zip が total_timesteps の 20/40/60/80/100% 地点で自動保存）
+（学習中、output\mvp2\fresh\sac_<YYYYMMDD-HHMMSS>_<手数>_steps.zip が total_timesteps の 20/40/60/80/100% 地点で自動保存）
 2026-... [mvp2.train] 学習完了: 最終モデル = fresh/ の最大ステップ checkpoint (sac_final.zip は廃止)
 2026-... [mvp2.train] 長期記憶を保存: output\mvp2\replay_buffer.pkl
 2026-... [mvp2.train] Resume state saved: output\mvp2\resume_state.json (next_stage=2, completed=[1])
 ```
 
 - **`sac_final.zip` は廃止**。最終モデルは `fresh/` の最大ステップ checkpoint が相当する。
-  デモ（`ai_server`）は起動時に `fresh/` か `played/` の最大ステップ checkpoint を自動選択する。
+  デモ（`ai_server`）は起動時に `find_latest_checkpoint` で最新 run の最大ステップ checkpoint を自動選択する。
 - **`replay_buffer.pkl`（長期記憶）と `resume_state.json`** は毎回保存される。次回 `--resume` で
   NN 重み・長期記憶・カリキュラム進捗（`next_stage_id`）を引き継いで再開できる。
-- checkpoint 名の `<手数>` はカリキュラムを通して連続した総タイムステップ。`--n-envs 6` だと
-  端数が生じ `19998` のような数になる（20% 地点の理論値 20000 との差は n_envs の端数）。
-  [`tools/demo_checkpoints.ps1`](../tools/demo_checkpoints.ps1) / `local_loop.ps1` が
-  `fresh/` の checkpoint をこの数で学習順に並べて再生する（再生環境は常に最終ステージ）。
+- checkpoint 名 `sac_<YYYYMMDD-HHMMSS>_<手数>_steps.zip` の `<YYYYMMDD-HHMMSS>` は同一 run の
+  5 本で共通（`run_ts`）。`<手数>` はカリキュラムを通して連続した総タイムステップ（`--n-envs 6` だと
+  端数が生じ `19998` のような数になる）。
+  ソートキーは `(run_ts, steps)` 昇順＝学習順。[`tools/demo_checkpoints.ps1`](../tools/demo_checkpoints.ps1) /
+  `local_loop.ps1` がこの順で `fresh/` の checkpoint を再生する（再生環境は常に最終ステージ）。
 - checkpoint は学習の 20/40/60/80/100% 地点にほぼ 5 本生成される（`checkpoint_splits=5`）。
   最終ステージ卒業後も `total_timesteps` まで走り続けるため、checkpoint が欠落することはない。
 
@@ -174,7 +175,7 @@ Logging to output\mvp2\tb\SAC_1                     ← グラフ用データ（
 
 ```
 2026-... [mvp3.ai] demo stage: id=5 '...' inventory={...} target=0.444 h_high=0.320 h_low=0.120  ← 常に最終ステージ
-2026-... [mvp3.ai] loading model: output\mvp2\fresh\sac_4000_steps.zip   ← 無指定なら fresh/ / played/ の最大ステップを自動選択
+2026-... [mvp3.ai] loading model: output\mvp2\fresh\sac_20260627-143022_4000_steps.zip   ← 無指定なら find_latest_checkpoint で最新 run の最大ステップを自動選択
 2026-... [mvp3.ai] model loaded: n_params=856178      ← AI の頭脳の部品数（壊れてなければ毎回同じ数）
 2026-... [mvp3.ai] short-term memory length: 5         ← 学習時と同じ「直近 5 手の記憶」設定
 2026-... [mvp3.ai] setting up world                    ← 積み木の世界を準備

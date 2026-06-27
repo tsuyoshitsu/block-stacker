@@ -194,7 +194,8 @@ docker push "$REGISTRY/block-stacker/learner:latest"
 ### 3.3 学習済みモデルを S3 に上げる（任意、初回はスキップ可）
 
 ```powershell
-$model = (Get-ChildItem "output\mvp2\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
+# find_latest_checkpoint で最新 run の最大ステップ checkpoint を取得（ソートキー: (run_ts, steps) 降順）
+$model = & .venv\Scripts\python.exe -c "from block_stacker.mvp2.checkpoint import find_latest_checkpoint; from pathlib import Path; p = find_latest_checkpoint(Path('output/mvp2')); print(p)"
 aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 ```
 

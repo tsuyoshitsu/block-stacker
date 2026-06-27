@@ -12,7 +12,7 @@
 ┌──────────────────────────────────────────────────────────┐
 │ 1. 学習を回す                                            │
 │    python -m block_stacker.mvp2.train --total-timesteps 4000  │
-│    → output/mvp2/fresh/ に sac_800_steps.zip...         │
+│    → output/mvp2/fresh/ に sac_20260627-143022_800_steps.zip...  │
 └──────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -85,8 +85,8 @@
 > でも上書きできる（env var > training.yaml > 既定）。本番（AWS の learner）も既定でカリキュラム ON。
 
 学習中：
-- `output/mvp2/fresh/sac_<steps>_steps.zip` が **`total_timesteps` の 20/40/60/80/100% 地点**で保存される（5本固定）。
-  ファイル名のステップ数は全ステージ通算の連続値。`configs/training.yaml` の `sac.checkpoint_splits`（既定 5）で分割数を変更可。
+- `output/mvp2/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` が **`total_timesteps` の 20/40/60/80/100% 地点**で保存される（5本固定）。
+  先頭の日時（`run_ts`）は同一 run の 5 本で共通。ファイル名のステップ数は全ステージ通算の連続値。`configs/training.yaml` の `sac.checkpoint_splits`（既定 5）で分割数を変更可。
   最後の checkpoint（100% 地点）が最終モデル相当（`sac_final.zip` は廃止）。
 - `output/mvp2/tb/` に TensorBoard ログが書かれる
 - `output/mvp2/replay_buffer.pkl`（長期記憶）と `output/mvp2/resume_state.json` が**毎回**保存される（次回 `--resume` で利用）
@@ -98,7 +98,7 @@
 を引き継ぎ、長期記憶には「前回終了からの経過日数×5000 step 分の時間減衰」を自動適用する。
 
 ```powershell
-# 初回学習を済ませてから続きを学習（fresh/ か played/ の最大ステップ checkpoint を自動選択）
+# 初回学習を済ませてから続きを学習（find_latest_checkpoint で最新 run の最大ステップ checkpoint を自動選択）
 .venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000 --resume
 ```
 
@@ -148,16 +148,16 @@ tools\demo_checkpoints.ps1
 出力例：
 
 ```
-発見された checkpoint (20 件):
-  0: 5000 steps       (sac_5000_steps.zip)
-  1: 10000 steps      (sac_10000_steps.zip)
-  2: 15000 steps      (sac_15000_steps.zip)
-  ...
- 19: 100000 steps     (sac_100000_steps.zip)
+発見された checkpoint (5 件):
+  0: 20260627-143022 / 800 steps   (sac_20260627-143022_800_steps.zip)
+  1: 20260627-143022 / 1600 steps  (sac_20260627-143022_1600_steps.zip)
+  2: 20260627-143022 / 2400 steps  (sac_20260627-143022_2400_steps.zip)
+  3: 20260627-143022 / 3200 steps  (sac_20260627-143022_3200_steps.zip)
+  4: 20260627-143022 / 4000 steps  (sac_20260627-143022_4000_steps.zip)
 
 番号を入力 (例: 5)、'all' で全部、'q' で終了
 > 0
-=== 5000 steps (sac_5000_steps.zip) ===
+=== 20260627-143022 / 800 steps (sac_20260627-143022_800_steps.zip) ===
   ai_server PID 12345、 60 秒間再生...
 ```
 
@@ -301,7 +301,7 @@ i7-10750H (6 物理コア) 想定:
 ```powershell
 $ACCOUNT = aws sts get-caller-identity --query Account --output text
 # fresh/ の最大ステップ checkpoint を最新モデルとして S3 にアップ
-$model = (Get-ChildItem "output\mvp2\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
+$model = & .venv\Scripts\python.exe -c "from block_stacker.mvp2.checkpoint import find_latest_checkpoint; from pathlib import Path; p = find_latest_checkpoint(Path('output/mvp2')); print(p)"
 aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 ```
 
@@ -315,7 +315,7 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 古い→新しい順に自動ステップアップ**して配信する。
 
 ```
-学習後           → fresh/ に sac_800_steps.zip ... sac_4000_steps.zip が 5 本生成
+学習後           → fresh/ に sac_20260627-143022_800_steps.zip ... sac_20260627-143022_4000_steps.zip が 5 本生成
 advance_day.ps1  → fresh/ の最古モデルで ai_server を起動
                    （前日モデルを played/ へ退避 → 次の最古モデルへ切替）
 fresh/ が空になったら → played/ の最大ステップモデルを繰り返し再生
@@ -379,13 +379,14 @@ Get-Content output\mvp2\advance_state.json
 output/
   mvp2/
     fresh/                 ← 学習直後の新しい checkpoint（advance_day が消費して played/ へ）
-      sac_800_steps.zip
-      sac_1600_steps.zip
-      sac_2400_steps.zip
-      sac_3200_steps.zip
-      sac_4000_steps.zip
-    played/                ← advance_day.ps1 が再生後に移動した checkpoint
-      sac_800_steps.zip    ← 1 日目の終わりに移動
+      sac_20260627-143022_800_steps.zip
+      sac_20260627-143022_1600_steps.zip
+      sac_20260627-143022_2400_steps.zip
+      sac_20260627-143022_3200_steps.zip
+      sac_20260627-143022_4000_steps.zip
+    played/                ← advance_day.ps1 が再生後に移動した checkpoint（run ごとに共存・衝突なし）
+      sac_20260620-091500_4000_steps.zip   ← 先週の run（別 run_ts で衝突しない）
+      sac_20260627-143022_800_steps.zip    ← 今週の 1 日目終わりに移動
       ...
     advance_state.json     ← {"model": "...", "from_fresh": true, "started_at": "...", ...}
     checkpoints/           ← 旧ディレクトリ（残っていても自動的に使わない）
