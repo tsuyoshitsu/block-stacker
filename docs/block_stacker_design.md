@@ -409,7 +409,7 @@ all_placed = 散布0 を達成                     # 即卒業のトリガー（
   欠落することを防ぐ。ループ後に `model.num_timesteps < total_timesteps` なら最終ステージ環境を
   再構築し `reset_num_timesteps=False` で続きを走らせる（checkpoint が `total_timesteps` まで埋まる）。
 - **デモ配信（[`mvp3/ai_server.py`](src/block_stacker/mvp3/ai_server.py)）は常に最終ステージ**
-  （全形状）でモデルを動かす。既定モデルは `sac_final.zip`→`sac_stage1_final.zip` の順で自動選択。
+  （全形状）でモデルを動かす。既定モデルは `output/mvp2/sac_final.zip` を自動選択。
 
 ### Stage 情報の取り扱い
 

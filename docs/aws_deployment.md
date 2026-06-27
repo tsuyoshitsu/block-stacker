@@ -270,7 +270,7 @@ cd C:\Users\iii03\block-stacker\lambda
 > 使い切ったら中断。成果は **最終 `sac_final.zip` のみ**（＋ checkpoints/）を S3 に保存。
 > Stage 1 のみに戻すなら `CMD` に `--no-curriculum` を渡す（既定 ON なので `--curriculum` を外すだけでは無効化されない）。
 > **デモ EC2 の `ai_server` は常に最終ステージ（全形状）でモデルを動かし**、既定モデルは
-> `sac_final.zip`→`sac_stage1_final.zip` の順で自動選択する。
+> `output/mvp2/sac_final.zip` を自動選択する。
 >
 > **卒業条件はコンテナ環境変数で上書き可**（優先順位: env var > training.yaml > 既定）。
 > ECS タスク定義 / `docker run -e` で渡す：

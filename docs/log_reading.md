@@ -174,7 +174,7 @@ Logging to output\mvp2\tb\SAC_1                     ← グラフ用データ（
 
 ```
 2026-... [mvp3.ai] demo stage: id=5 '...' inventory={...} target=0.444 h_high=0.320 h_low=0.120  ← 常に最終ステージ
-2026-... [mvp3.ai] loading model: output\mvp2\sac_final.zip   ← 無指定なら sac_final→sac_stage1_final を自動選択
+2026-... [mvp3.ai] loading model: output\mvp2\sac_final.zip   ← 無指定なら output/mvp2/sac_final.zip を自動選択
 2026-... [mvp3.ai] model loaded: n_params=856178      ← AI の頭脳の部品数（壊れてなければ毎回同じ数）
 2026-... [mvp3.ai] short-term memory length: 5         ← 学習時と同じ「直近 5 手の記憶」設定
 2026-... [mvp3.ai] setting up world                    ← 積み木の世界を準備

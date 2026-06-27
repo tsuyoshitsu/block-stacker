@@ -131,7 +131,7 @@
 [`tools/demo_checkpoints.ps1`](../tools/demo_checkpoints.ps1) を使う。
 
 > **デモは常に最終ステージ（全形状）でモデルを動かす**（`ai_server` 既定）。`--model` 無指定なら
-> `sac_final.zip`→`sac_stage1_final.zip` の順で自動選択。Stage 1 しか学習していない checkpoint を
+> `output/mvp2/sac_final.zip` を自動選択。Stage 1 しか学習していない checkpoint を
 > 最終ステージの世界（円柱あり）で再生すると当然うまく積めない点に注意。特定ステージの世界で見たい
 > なら `ai_server --stage N` を使う。
 >
@@ -261,7 +261,7 @@ tools\demo_checkpoints.ps1 -CheckpointsDir output\weeks\2026-W26 -Mode auto -Sec
 
 | オプション | デフォルト | 説明 |
 |----------|---------|------|
-| `--model` | 自動選択 | モデルパス（未指定: `sac_final.zip`→`sac_stage1_final.zip`） |
+| `--model` | 自動選択 | モデルパス（未指定: `output/mvp2/sac_final.zip`） |
 | `--host` | `0.0.0.0` | listen ホスト |
 | `--port` | `8765` | listen ポート |
 | `--stage` | 最終ステージ | デモするステージ番号 |

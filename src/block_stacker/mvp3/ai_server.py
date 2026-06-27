@@ -16,9 +16,9 @@ contributes only:
     - block spawning per curriculum stage（既定は最終ステージ＝全形状。--stage で変更可）
 
 Run:
-    uv run python -m block_stacker.mvp3.ai_server
-    uv run python -m block_stacker.mvp3.ai_server --port 8765 \\
-        --model output/mvp2/sac_stage1_final.zip --thinking-pause 1.0
+    .venv\Scripts\python.exe -m block_stacker.mvp3.ai_server
+    .venv\Scripts\python.exe -m block_stacker.mvp3.ai_server --port 8765 \
+        --model output/mvp2/sac_final.zip --thinking-pause 1.0
 
 ----------------------------------------------------------------------
 レビューノート（日本語）
@@ -240,17 +240,12 @@ def rescatter_blocks(
 def _resolve_model_path(explicit: Path | None) -> Path:
     """既定の推論モデルを解決する。
 
-    --model 明示時はそれを使う。無指定なら最終ステージモデル sac_final.zip を優先し、
-    無ければ sac_stage1_final.zip にフォールバック（カリキュラム未実行でも動くように）。
+    --model 明示時はそれを使う。無指定なら output/mvp2/sac_final.zip を返す。
+    ファイルが存在しない場合は呼び出し元の SAC.load() でエラーになる。
     """
     if explicit is not None:
         return explicit
-    base = Path("output/mvp2")
-    for name in ("sac_final.zip", "sac_stage1_final.zip"):
-        p = base / name
-        if p.exists():
-            return p
-    return base / "sac_stage1_final.zip"
+    return Path("output/mvp2/sac_final.zip")
 
 
 # ----------------------------------------------------------- observation/util
@@ -568,7 +563,7 @@ async def main_async(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="block_stacker.mvp3.ai_server")
     parser.add_argument("--model", type=Path, default=None,
-                        help="推論モデル。無指定なら sac_final.zip→sac_stage1_final.zip を自動選択")
+                        help="推論モデル。無指定なら output/mvp2/sac_final.zip を自動選択")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--configs-dir", type=Path, default=default_configs_dir())

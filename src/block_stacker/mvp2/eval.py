@@ -35,7 +35,7 @@ LOG = logging.getLogger("mvp2.eval")
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="block_stacker.mvp2.eval")
-    parser.add_argument("--model", type=Path, default=Path("output/mvp2/sac_stage1_final.zip"))
+    parser.add_argument("--model", type=Path, default=Path("output/mvp2/sac_final.zip"))
     parser.add_argument("--configs-dir", type=Path, default=default_configs_dir())
     parser.add_argument("--episodes", type=int, default=2)
     parser.add_argument("--max-steps", type=int, default=10)
