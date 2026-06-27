@@ -1,20 +1,27 @@
 ﻿# tools/curate_week.ps1
 #
-# Weekly model curation: checkpoints から等間隔で 5 本を選び
+# Weekly model curation: train.py が生成した checkpoint をそのまま採用し
 # output/weeks/<YYYY-WNN>/ に配置して manifest.json / state.json / active_week.txt を生成する。
+#
+# 【選出方針】
+#   train.py は total_timesteps を checkpoint_splits(=5) 等分した地点で 5 本の checkpoint を生成する。
+#   curate_week は生成された checkpoint をそのまま採用する（再分割・等間隔選出は行わない）。
+#   - 5 本以下: そのまま全部採用（不足分は sac_final.zip でパディング）
+#   - 5 本超  : 最新の 5 本（ステップ数が最大の方から 5 本）を採用
+#               （--resume / カリキュラム卒業で checkpoint が混在・増加した場合の安全策）
 #
 # 使い方:
 #   tools\curate_week.ps1
 #   tools\curate_week.ps1 -Force
 #   tools\curate_week.ps1 -WeekOverride 2026-W27 -Force
-#   tools\curate_week.ps1 -MaxSteps 50000          # 5万ステップ以下のcheckpointだけを対象に選出
+#   tools\curate_week.ps1 -MaxSteps 50000          # 5万ステップ以下のcheckpointだけを対象にする
 #
 # パラメータ:
 #   -MaxSteps <int>   : 0 = 上限なし（既定）。指定するとステップ数が MaxSteps 以下の
-#                       checkpoint だけを対象に等間隔選出する。
+#                       checkpoint だけを採用対象にする。
 #                       ちょうど MaxSteps のファイルが無くても、それ以下で最大のものが
 #                       step_05 に入る（自動追従）。
-#                       例: -MaxSteps 50000 → 5万ステップ以下の中から 5 本選ぶ
+#                       例: -MaxSteps 50000 → 5万ステップ以下から採用
 #
 # ワークフロー:
 #   日曜 学習終了後 -> tools\curate_week.ps1 -> active_week.txt が更新される
@@ -66,21 +73,6 @@ function Get-Checkpoints {
     return $results
 }
 
-# ---------------------------------------------------------------- 等間隔で N 本選出
-# 先頭・末尾を必ず含み、間を均等割り（floor）
-function Select-EquallySpaced {
-    param([array]$Items, [int]$Count = 5)
-    $n = $Items.Count
-    if ($n -eq 0)      { return @() }
-    if ($n -le $Count) { return $Items }
-    $selected = @()
-    for ($i = 0; $i -lt $Count; $i++) {
-        $idx = [int][Math]::Floor($i * ($n - 1) / ($Count - 1))
-        $selected += $Items[$idx]
-    }
-    return $selected
-}
-
 # ================================================================ main
 
 $weekId = if ($WeekOverride -ne "") { $WeekOverride } else { Get-ISOWeekId }
@@ -109,7 +101,7 @@ if ($MaxSteps -gt 0) {
 if ($checkpoints.Count -eq 0) {
     Write-Host ""
     Write-Host "ERROR: No checkpoints found. Run training first:" -ForegroundColor Red
-    Write-Host "  .venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 100000" -ForegroundColor Yellow
+    Write-Host "  .venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000" -ForegroundColor Yellow
     exit 1
 }
 
@@ -119,9 +111,16 @@ if (-not (Test-Path $FinalModelPath)) {
 }
 $finalAbsPath = (Resolve-Path $FinalModelPath).Path
 
-# 等間隔で 5 本選出（不足分は sac_final.zip で補完）
-$selected = @(Select-EquallySpaced -Items $checkpoints -Count 5)
-$padded   = $false
+# 採用 checkpoint 決定（5 本以下はそのまま、5 本超は最新 5 本を採用）
+$availableCount = $checkpoints.Count
+if ($checkpoints.Count -gt 5) {
+    $checkpoints = @($checkpoints[-5..-1])
+    Write-Host ("  NOTE: {0} checkpoints; using newest 5 ({1} oldest discarded)" -f $availableCount, ($availableCount - 5)) -ForegroundColor Yellow
+}
+$selected = @($checkpoints)
+
+# 5 本未満は sac_final.zip でパディング
+$padded = $false
 while ($selected.Count -lt 5) {
     $selected += [PSCustomObject]@{ Steps = -1; Name = "sac_final.zip"; FullName = $finalAbsPath }
     $padded    = $true
@@ -154,7 +153,7 @@ $manifest = [ordered]@{
     week              = $weekId
     created_at        = (Get-Date -Format "yyyy-MM-ddTHH:mm:sszzz")
     checkpoints_dir   = $CheckpointsDir
-    total_checkpoints = $checkpoints.Count
+    total_checkpoints = $availableCount
     steps             = $manifestSteps
 }
 $manifestJson = $manifest | ConvertTo-Json -Depth 5

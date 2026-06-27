@@ -327,8 +327,9 @@ aws s3 cp output\mvp2\sac_final.zip s3://bs-app-$ACCOUNT/models/latest.pt
 
 > **checkpoint と step_01..05 の対応**: `train.py` は学習を `total_timesteps` の 20/40/60/80/100%
 > の地点でちょうど 5 本の checkpoint を生成する（`configs/training.yaml` の `checkpoint_splits: 5`）。
-> `curate_week.ps1` がこれを選出して `step_01..05.zip` に並べるので、
-> **checkpoint 5 本 ↔ step_01..05 が 1 対 1 で対応**する。
+> `curate_week.ps1` はこれを**再分割せずそのまま**採用して `step_01..05.zip` に並べる。
+> 5 本を超える場合（`--resume` 実行・カリキュラム卒業で混在）は最新 5 本を採用。
+> **checkpoint 5 本 ↔ step_01..05 が 1 対 1 で対応**する（通常ケース）。
 
 ```
 日曜 学習後 → curate_week.ps1 → weeks/<YYYY-WNN>/ に step_01〜05.zip を配置
@@ -343,7 +344,7 @@ aws s3 cp output\mvp2\sac_final.zip s3://bs-app-$ACCOUNT/models/latest.pt
 
 | スクリプト | タイミング | 役割 |
 |---|---|---|
-| `tools\curate_week.ps1` | 学習直後（日曜） | checkpoint 群から等間隔 5 本選出 → `weeks/<YYYY-WNN>/` 生成 |
+| `tools\curate_week.ps1` | 学習直後（日曜） | checkpoint をそのまま採用（5 本超は最新 5 本）→ `weeks/<YYYY-WNN>/` 生成 |
 | `tools\advance_day.ps1` | 平日 14:00（自動） | 今日の step モデルで ai_server を（再）起動、current_day を +1 |
 | `tools\demo_checkpoints.ps1` | 開発時の手動確認 | 変更なし・開発用として温存 |
 
@@ -391,9 +392,9 @@ Register-ScheduledTask -TaskName "BlockStacker-WeeklyCurate" `
 
 #### 最大ステップ数の上限を指定（curate_week.ps1 `-MaxSteps`）
 
-`-MaxSteps` を指定すると、そのステップ数**以下**の checkpoint だけを対象に等間隔選出する。
+`-MaxSteps` を指定すると、そのステップ数**以下**の checkpoint だけを採用対象にする。
 指定値ちょうどのファイルが無くても、それ以下で最大のものが step_05 に入る（自動追従）。
-未指定（既定 0）なら従来どおり全 checkpoint の最大値が step_05 に入る。
+未指定（既定 0）なら全 checkpoint の最大値が step_05 に入る。
 
 ```powershell
 # 5万ステップ以下の checkpoint から 5 本選ぶ（週の「成長」幅を抑えたいとき）
