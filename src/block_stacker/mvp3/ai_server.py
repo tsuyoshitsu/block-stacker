@@ -18,7 +18,7 @@ contributes only:
 Run:
     .venv\Scripts\python.exe -m block_stacker.mvp3.ai_server
     .venv\Scripts\python.exe -m block_stacker.mvp3.ai_server --port 8765 \
-        --model output/mvp2/sac_final.zip --thinking-pause 1.0
+        --model output/mvp2/fresh/sac_3990_steps.zip --thinking-pause 1.0
 
 ----------------------------------------------------------------------
 レビューノート（日本語）
@@ -83,6 +83,7 @@ from block_stacker.env.action import decode_action
 from block_stacker.env.env import EVENT_TO_RESULT_SCORE, inventory_full_stack_height
 from block_stacker.env.observation import pack_observation_dict
 from block_stacker.env.tower import find_tower_blocks, tower_base_xy, tower_height
+from block_stacker.mvp2.checkpoint import find_latest_checkpoint
 from block_stacker.mvp2.curriculum import resolve_graduation
 from block_stacker.mvp3.runtime import setup_streaming_runtime
 from block_stacker.sim.blocks import (
@@ -240,12 +241,15 @@ def rescatter_blocks(
 def _resolve_model_path(explicit: Path | None) -> Path:
     """既定の推論モデルを解決する。
 
-    --model 明示時はそれを使う。無指定なら output/mvp2/sac_final.zip を返す。
-    ファイルが存在しない場合は呼び出し元の SAC.load() でエラーになる。
+    --model 明示時はそれを使う。無指定なら fresh/ / played/ の最大ステップ checkpoint を返す。
+    どちらも空の場合は SAC.load() でエラーになるダミーパスを返す。
     """
     if explicit is not None:
         return explicit
-    return Path("output/mvp2/sac_final.zip")
+    found = find_latest_checkpoint(Path("output/mvp2"))
+    if found is not None:
+        return found
+    return Path("output/mvp2/fresh/sac_latest.zip")
 
 
 # ----------------------------------------------------------- observation/util
@@ -563,7 +567,7 @@ async def main_async(args: argparse.Namespace) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser(prog="block_stacker.mvp3.ai_server")
     parser.add_argument("--model", type=Path, default=None,
-                        help="推論モデル。無指定なら output/mvp2/sac_final.zip を自動選択")
+                        help="推論モデル。無指定なら fresh/ / played/ の最大ステップを自動選択")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--configs-dir", type=Path, default=default_configs_dir())

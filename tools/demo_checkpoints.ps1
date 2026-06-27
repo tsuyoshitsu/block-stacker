@@ -1,17 +1,18 @@
 ﻿# tools/demo_checkpoints.ps1
 #
 # ローカル学習で生成された checkpoint を一つずつデモ実行して、AI の「成長」を観察するヘルパー。
+# ※ 日次/ループ自動化は advance_day.ps1 / local_loop.ps1 を使う。このスクリプトは開発用手動確認。
 #
 # 使い方:
-#   tools/demo_checkpoints.ps1                                        # 対話モード（一つ選んで再生）
-#   tools/demo_checkpoints.ps1 -Mode auto                             # 全 checkpoint を順番に再生
-#   tools/demo_checkpoints.ps1 -Mode auto -Seconds 60                 # 各 60 秒ずつ
-#   tools/demo_checkpoints.ps1 -CheckpointsDir output\mvp2\checkpoints  # checkpoints/ を明示
-#   tools/demo_checkpoints.ps1 -CheckpointsDir output\weeks\2026-W26    # 週次モデルを再生
+#   tools/demo_checkpoints.ps1                                     # 対話モード（一つ選んで再生）
+#   tools/demo_checkpoints.ps1 -Mode auto                          # 全 checkpoint を順番に再生
+#   tools/demo_checkpoints.ps1 -Mode auto -Seconds 60              # 各 60 秒ずつ
+#   tools/demo_checkpoints.ps1 -CheckpointsDir output\mvp2\fresh   # fresh/ を明示（既定）
+#   tools/demo_checkpoints.ps1 -CheckpointsDir output\mvp2\played  # played/ を再生
 #
 # 前提:
 #   - .venv が学習依存をインストール済み (pip install -e .)
-#   - learner が output/mvp2/checkpoints/sac_<steps>_steps.zip を生成済み
+#   - learner が output/mvp2/fresh/sac_<steps>_steps.zip を生成済み
 #   - Godot エディタは別途起動して main.tscn を再生 (またはスクリプトが起動)
 #
 # 設計上のポイント（日本語レビューノート）:
@@ -25,7 +26,7 @@
 #   - PowerShell 起動・停止のタイミングを揃えるため、Start-Sleep で待つ
 
 param(
-    [string]$CheckpointsDir = "output\mvp2\checkpoints",
+    [string]$CheckpointsDir = "output\mvp2\fresh",
     [int]$Seconds = 60,
     [ValidateSet("interactive", "auto")]
     [string]$Mode = "interactive",
@@ -41,17 +42,12 @@ $ErrorActionPreference = "Stop"
 function Get-Checkpoints {
     param([string]$Dir)
     if (-not (Test-Path $Dir)) {
-        Write-Host "checkpoints ディレクトリが見つかりません: $Dir" -ForegroundColor Red
+        Write-Host "checkpoint ディレクトリが見つかりません: $Dir" -ForegroundColor Red
         Write-Host "先に学習を回してください:" -ForegroundColor Yellow
-        Write-Host "  .venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 100000" -ForegroundColor Yellow
+        Write-Host "  .venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000" -ForegroundColor Yellow
         exit 1
     }
-    # 2 形式の ZIP を認識する:
-    #   sac_<steps>_steps.zip ... checkpoints/ の学習 checkpoint。
-    #                             総ステップ数をソートキーにして学習順に並べる。
-    #   step_NN.zip           ... curate_week.ps1 が生成する週次モデル（weeks/<週>/）。
-    #                             day 番号 (01=月 .. 05=金) をソートキーにして昇順に並べる。
-    Get-ChildItem $Dir -Filter "*.zip" |
+    Get-ChildItem $Dir -Filter "sac_*_steps.zip" |
         ForEach-Object {
             if ($_.Name -match "^sac_(\d+)_steps\.zip$") {
                 [PSCustomObject]@{
@@ -59,13 +55,6 @@ function Get-Checkpoints {
                     Name     = $_.Name
                     FullName = $_.FullName
                     Label    = "$($Matches[1]) steps"
-                }
-            } elseif ($_.Name -match "^step_(\d+)\.zip$") {
-                [PSCustomObject]@{
-                    Steps    = [int]$Matches[1]
-                    Name     = $_.Name
-                    FullName = $_.FullName
-                    Label    = "day $($Matches[1])"
                 }
             }
         } |

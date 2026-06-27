@@ -29,13 +29,15 @@ from block_stacker.config import (
     default_configs_dir,
 )
 from block_stacker.env.env import BlockStackerEnv
+from block_stacker.mvp2.checkpoint import find_latest_checkpoint
 
 LOG = logging.getLogger("mvp2.eval")
 
 
 def main() -> None:
     parser = argparse.ArgumentParser(prog="block_stacker.mvp2.eval")
-    parser.add_argument("--model", type=Path, default=Path("output/mvp2/sac_final.zip"))
+    parser.add_argument("--model", type=Path, default=None,
+                        help="モデルパス。無指定なら fresh/ / played/ の最大ステップを自動選択")
     parser.add_argument("--configs-dir", type=Path, default=default_configs_dir())
     parser.add_argument("--episodes", type=int, default=2)
     parser.add_argument("--max-steps", type=int, default=10)
@@ -45,6 +47,14 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+
+    if args.model is None:
+        args.model = find_latest_checkpoint(Path("output/mvp2"))
+        if args.model is None:
+            raise SystemExit(
+                "fresh/ / played/ に checkpoint が見つかりません。学習後に再実行してください。"
+            )
+        LOG.info("--model 未指定: 自動選択 %s", args.model)
 
     world_cfg = WorldConfig.from_yaml(args.configs_dir / "world.yaml")
     physics_cfg = PhysicsConfig.from_yaml(args.configs_dir / "physics.yaml")

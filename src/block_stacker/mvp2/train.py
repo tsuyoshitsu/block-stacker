@@ -44,6 +44,7 @@ import argparse
 import json
 import logging
 import multiprocessing as mp
+import shutil
 from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
@@ -61,6 +62,7 @@ from block_stacker.config import (
     default_configs_dir,
 )
 from block_stacker.env.env import BlockStackerEnv, inventory_full_stack_height
+from block_stacker.mvp2.checkpoint import find_latest_checkpoint
 from block_stacker.mvp2.curriculum import (
     GraduationCallback,
     StageMonitorCallback,
@@ -204,6 +206,22 @@ def main() -> None:
 
     args.output_dir.mkdir(parents=True, exist_ok=True)
 
+    # --- fresh/ を今回の学習専用にリセット ---
+    # 前回の未再生 checkpoint が fresh/ に残っていれば played/ へ退避してから学習を開始する。
+    # played/ へ移すことで --resume 時にも参照可能にする（安全側）。
+    fresh_dir = args.output_dir / "fresh"
+    played_dir = args.output_dir / "played"
+    existing_fresh = sorted(fresh_dir.glob("sac_*_steps.zip")) if fresh_dir.exists() else []
+    if existing_fresh:
+        played_dir.mkdir(parents=True, exist_ok=True)
+        for p in existing_fresh:
+            shutil.move(str(p), str(played_dir / p.name))
+        LOG.info(
+            "学習開始: fresh/ の既存 checkpoint %d 本を played/ へ退避 %s",
+            len(existing_fresh), [p.name for p in existing_fresh],
+        )
+    fresh_dir.mkdir(parents=True, exist_ok=True)
+
     # --- stage 非依存の設定（policy / 重みつき replay buffer）を一度だけ組む ---
     policy_kwargs = {
         "features_extractor_class": HybridFeatureExtractor,
@@ -232,7 +250,7 @@ def main() -> None:
             "height_max_factor": float(height_cfg.get("max_factor", 3.0)),
         }
 
-    # checkpoint を total_timesteps の等分地点（checkpoint_splits 等分）で保存する。
+    # checkpoint を total_timesteps の等分地点（checkpoint_splits 等分）で fresh/ に保存する。
     # SB3 CheckpointCallback の save_freq は「1 本の環境ストリームあたりのステップ数
     # (= n_calls)」基準のため、n_envs 並列では n_envs で割って実際の通算ステップを合わせる。
     #
@@ -240,9 +258,8 @@ def main() -> None:
     #   save_freq = 4000 // 5 // 6 = 133
     #   実際の保存ステップ: 133*6=798, 266*6=1596, ... ≈ 20/40/60/80/100 %
     #
-    # 最終地点（100 %）の checkpoint は sac_final.zip と内容が重複するが、
-    # demo_checkpoints.ps1 / curate_week.ps1 が checkpoints/ を参照して等間隔選出するため
-    # 残しておく（curate_week.ps1 は 100 % を step_05.zip に選ぶ）。
+    # 最終地点（100 %）の checkpoint が最終モデル相当（sac_final.zip は廃止）。
+    # advance_day.ps1 / local_loop.ps1 が fresh/ を参照して順に再生する。
     splits = int(sac_cfg.get("checkpoint_splits", 5))
     save_freq = max(total_timesteps // splits // max(1, n_envs), 1)
     LOG.info(
@@ -273,10 +290,10 @@ def main() -> None:
 
     # チェックポイントは全ステージ通して「ステップ数ごと」に連続記録する（ステージ別にしない）。
     # コールバックを1つ使い回すことで n_calls が連続し、cadence がステージ跨ぎで途切れない。
-    # → checkpoints/sac_<手数>_steps.zip。demo_checkpoints.ps1 がステップ順に再生。
+    # → fresh/sac_<手数>_steps.zip。advance_day.ps1 / local_loop.ps1 がステップ順に再生。
     checkpoint_cb = CheckpointCallback(
         save_freq=save_freq,
-        save_path=str(args.output_dir / "checkpoints"),
+        save_path=str(args.output_dir / "fresh"),
         name_prefix="sac",
     )
 
@@ -289,13 +306,14 @@ def main() -> None:
     # 短期記憶 (recent_* deque) は env.reset() で自動クリアされるため何もしない（設計通り）。
     model: SAC | None = None
     if args.resume:
-        sac_path = args.output_dir / "sac_final.zip"
+        sac_path = find_latest_checkpoint(args.output_dir)
+        if sac_path is None:
+            raise SystemExit(
+                "--resume 指定だが fresh/ / played/ に checkpoint が見つかりません。"
+                "初回学習後に再実行してください。"
+            )
         buf_path = args.output_dir / "replay_buffer.pkl"
         state_path = args.output_dir / "resume_state.json"
-        if not sac_path.exists():
-            raise SystemExit(
-                f"--resume 指定だが {sac_path} が見つかりません。初回学習後に再実行してください。"
-            )
         resume_state: dict[str, Any] = {}
         if state_path.exists():
             with state_path.open("r", encoding="utf-8-sig") as f:
@@ -458,11 +476,7 @@ def main() -> None:
         continuation_env.close()
 
     assert model is not None
-    # 最終モデルのみ保存（ステージごとの最終モデルは保存しない＝checkpoints/ で補完）。
-    # 単一ステージ・カリキュラム共通の成果物。ai_server の既定解決もこれを優先。
-    final_path = args.output_dir / "sac_final.zip"
-    model.save(str(final_path))
-    LOG.info("Saved final model: %s (途中は checkpoints/ 参照)", final_path)
+    LOG.info("学習完了: 最終モデル = fresh/ の最大ステップ checkpoint (sac_final.zip は廃止)")
 
     # 長期記憶（リプレイバッファ）を毎回保存（--resume 時に利用）。
     buf_save_path = args.output_dir / "replay_buffer.pkl"
