@@ -171,22 +171,22 @@ tools\demo_checkpoints.ps1 -Mode auto -Seconds 30
 
 20 個の checkpoint を各 30 秒ずつ自動で順番再生。**約 10 分かけて AI の成長を一気に見られる**。
 
-#### ローカル成長ループ（local_loop.ps1）
+#### ローカル成長1巡再生（local_loop.ps1）
 
-`fresh/` の checkpoint を古い→新しい順に自動循環再生する。AI の成長をリアルタイムで繰り返し観察したいとき。
+`fresh/` の checkpoint を古い→新しい順に1巡再生し、最後のモデルが終わったら**自動終了**する（ループなし）。
 
 ```powershell
-# fresh/ を 60 秒ずつ無限ループ（Ctrl+C で停止）
+# fresh/ を 60 秒ずつ1巡して終了
 tools\local_loop.ps1
 
-# 30 秒ごとに切り替え、3 サイクルで終了
-tools\local_loop.ps1 -SwitchSeconds 30 -MaxCycles 3
+# 30 秒ごとに切り替えて1巡
+tools\local_loop.ps1 -SwitchSeconds 30
 
-# played/ を再生（新しい fresh/ が来るまでの繰り返し再生）
+# played/ を指定（先の学習分を観察したいとき）
 tools\local_loop.ps1 -Dir output\mvp2\played
 ```
 
-`played/` を直接指定したいときは `-CheckpointsDir output\mvp2\played` で `demo_checkpoints.ps1` も使える。
+`played/` を直接選んで再生したいときは `demo_checkpoints.ps1 -CheckpointsDir output\mvp2\played` も使える。
 
 ### Step 4: 観察する
 
@@ -221,13 +221,12 @@ tools\local_loop.ps1 -Dir output\mvp2\played
 | `-Godot` | `D:\Godot_...\Godot_...exe` | Godot 実行パス |
 | `-LaunchGodot` | (未指定なら手動) | このフラグで Godot を自動起動 |
 
-### `tools\local_loop.ps1`（ローカル成長ループ）
+### `tools\local_loop.ps1`（ローカル成長1巡再生）
 
 | パラメータ | デフォルト | 説明 |
 |----------|---------|------|
 | `-Dir` | `output\mvp2\fresh` | checkpoint ディレクトリ |
 | `-SwitchSeconds` | `60` | 1 モデルあたりの再生秒数 |
-| `-MaxCycles` | `0` (無限) | ループ回数。0 で無限（Ctrl+C で停止） |
 | `-Python` | `.venv\Scripts\python.exe` | Python 実行パス |
 | `-AiHost` | `127.0.0.1` | ai_server の listen ホスト |
 | `-AiPort` | `8765` | ai_server の listen ポート |
@@ -327,7 +326,7 @@ fresh/ が空になったら → played/ の最大ステップモデルを繰り
 | スクリプト | タイミング | 役割 |
 |---|---|---|
 | `tools\advance_day.ps1` | 平日 14:00（自動） | `fresh/` 最古モデルで ai_server を（再）起動。前回モデルを `played/` へ退避 |
-| `tools\local_loop.ps1` | ローカル観察時 | `fresh/` を昇順に循環再生（`played/` 移動なし） |
+| `tools\local_loop.ps1` | ローカル観察時 | `fresh/` を昇順に1巡再生して終了（`played/` 移動なし） |
 | `tools\demo_checkpoints.ps1` | 開発時の手動確認 | 一つ選んで再生または全自動 |
 
 ### セットアップ手順

@@ -1,27 +1,25 @@
 ﻿# tools/local_loop.ps1
 #
-# ローカル成長ループ: fresh/ の checkpoint を古い→新しい順に -SwitchSeconds 秒ずつ循環再生する。
+# ローカル成長1巡再生: fresh/ の checkpoint を古い→新しい順に -SwitchSeconds 秒ずつ再生し、
+# 最後のモデルの再生が終わったら正常終了する（ループなし）。
 #
-# 用途: ローカル環境で AI の成長過程を繰り返し観察する。
+# 用途: ローカル環境で AI の成長過程を1周観察する。
 #       日次運用(advance_day.ps1)と違い played/ への移動はしない（読み取り専用）。
 #
 # 使い方:
-#   tools\local_loop.ps1                       # fresh/ を 60 秒ずつ無限ループ
+#   tools\local_loop.ps1                       # fresh/ を 60 秒ずつ1巡して終了
 #   tools\local_loop.ps1 -SwitchSeconds 30     # 30 秒ごとに切り替え
 #   tools\local_loop.ps1 -Dir output\mvp2\played  # played/ を指定
-#   tools\local_loop.ps1 -SwitchSeconds 5 -MaxCycles 3  # 3 サイクルで終了（テスト用）
 #
-# 終了: Ctrl+C または -MaxCycles 指定
+# 終了: 最後のモデルの再生が終わると自動終了（Ctrl+C で途中中断も可）
 #
 # パラメータ:
 #   -SwitchSeconds <int> : 1 モデルあたりの再生秒数（既定 60）
 #   -Dir <path>          : checkpoint ディレクトリ（既定 fresh/）
-#   -MaxCycles <int>     : 0 = 無限ループ（既定）。N を指定すると N サイクルで終了
 
 param(
     [string]$Dir            = "output\mvp2\fresh",
     [int]$SwitchSeconds     = 60,
-    [int]$MaxCycles         = 0,
     [string]$Python         = ".venv\Scripts\python.exe",
     [string]$AiHost         = "127.0.0.1",
     [int]$AiPort            = 8765
@@ -82,45 +80,32 @@ if ($models.Count -eq 0) {
 
 Write-Host ""
 Write-Host "=== local_loop ===" -ForegroundColor Cyan
-Write-Host "  dir       : $Dir"
-Write-Host "  models    : $($models.Count) checkpoints"
+Write-Host "  dir    : $Dir"
+Write-Host "  models : $($models.Count) checkpoints"
 $models | ForEach-Object { Write-Host "    $($_.Steps) steps -> $($_.Name)" -ForegroundColor DarkGray }
-Write-Host "  switch    : every ${SwitchSeconds}s"
-Write-Host "  cycles    : $(if ($MaxCycles -gt 0) { $MaxCycles } else { 'infinite (Ctrl+C to stop)' })"
+Write-Host "  switch : every ${SwitchSeconds}s"
+Write-Host "  loop   : 1 pass then exit"
 Write-Host ""
 
 Stop-AiServer
 
-$cycle    = 0
-$running  = $true
-
 try {
-    while ($running) {
-        $cycle++
-        Write-Host "--- Cycle $cycle ---" -ForegroundColor Cyan
-
-        foreach ($m in $models) {
-            Write-Host "  [$($m.Steps) steps] $($m.Name) for ${SwitchSeconds}s" -ForegroundColor Green
-            $proc = Start-AiServer -ModelPath $m.FullName -Duration $SwitchSeconds
-            if ($null -ne $proc) {
-                # ai_server は --duration で自己終了する。WaitForExit で同期
-                $proc.WaitForExit(($SwitchSeconds + 10) * 1000) | Out-Null
-                if (-not $proc.HasExited) {
-                    Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-                }
-            } else {
-                # 起動失敗のとき SwitchSeconds 待って次へ
-                Start-Sleep $SwitchSeconds
+    foreach ($m in $models) {
+        Write-Host "  [$($m.Steps) steps] $($m.Name) for ${SwitchSeconds}s" -ForegroundColor Green
+        $proc = Start-AiServer -ModelPath $m.FullName -Duration $SwitchSeconds
+        if ($null -ne $proc) {
+            $proc.WaitForExit(($SwitchSeconds + 10) * 1000) | Out-Null
+            if (-not $proc.HasExited) {
+                Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
             }
-            Start-Sleep 1
+        } else {
+            Start-Sleep $SwitchSeconds
         }
-
-        if ($MaxCycles -gt 0 -and $cycle -ge $MaxCycles) {
-            $running = $false
-        }
+        Start-Sleep 1
     }
 } finally {
     Stop-AiServer
-    Write-Host ""
-    Write-Host "local_loop 終了 (${cycle} サイクル完了)" -ForegroundColor Cyan
 }
+
+Write-Host ""
+Write-Host "local_loop 完了: $($models.Count) モデルを再生して終了" -ForegroundColor Cyan
