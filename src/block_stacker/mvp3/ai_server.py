@@ -84,7 +84,7 @@ from block_stacker.env.env import EVENT_TO_RESULT_SCORE, inventory_full_stack_he
 from block_stacker.env.observation import pack_observation_dict
 from block_stacker.env.tower import find_tower_blocks, tower_base_xy, tower_height
 from block_stacker.mvp2.checkpoint import find_latest_checkpoint
-from block_stacker.mvp2.curriculum import resolve_graduation
+from block_stacker.mvp2.curriculum import resolve_graduation, stage_inventory
 from block_stacker.mvp3.runtime import setup_streaming_runtime
 from block_stacker.sim.blocks import (
     Block,
@@ -152,15 +152,6 @@ def _spawn_z0(shape: ShapeSpec) -> float:
     if shape.type == "triangular_prism":
         return float(shape.dims[0] / 3.0)
     return 0.05
-
-
-def _stage_inventory(stage: dict[str, Any], world_cfg: WorldConfig) -> dict[str, int]:
-    """stage 定義から在庫を取り出す（inventory 明示 or shapes_allowed 派生）。"""
-    return stage.get("inventory") or {
-        name: count
-        for name, count in world_cfg.inventory.items()
-        if name in set(stage["shapes_allowed"])
-    }
 
 
 def _sample_scatter_xy(
@@ -492,7 +483,7 @@ async def main_async(args: argparse.Namespace) -> None:
         stage = next((s for s in stages if s.get("id") == args.stage), stages[-1])
     else:
         stage = stages[-1]
-    inventory = _stage_inventory(stage, world_cfg)
+    inventory = stage_inventory(stage, world_cfg)
     h_high = args.h_high if args.h_high is not None else float(stage["h_high"])
     h_low = args.h_low if args.h_low is not None else float(stage["h_low"])
     _, _, grad_ratio = resolve_graduation(training_cfg.get("curriculum", {}).get("graduation", {}))
