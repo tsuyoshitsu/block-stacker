@@ -75,6 +75,10 @@ class HybridFeatureExtractor(BaseFeaturesExtractor):
         hm_space = observation_space["heightmap"]
         scalar_space = observation_space["tower_top_z"]
 
+        # shape は Box 空間なので必ず non-None。mypy は Optional と見るのでアサートで絞る。
+        assert block_space.shape is not None
+        assert hm_space.shape is not None
+        assert scalar_space.shape is not None
         per_block_dim = int(block_space.shape[-1])
         hm_channels = int(hm_space.shape[0])
         scalar_dim = int(scalar_space.shape[0])
@@ -104,6 +108,7 @@ class HybridFeatureExtractor(BaseFeaturesExtractor):
         concat_dim = set_output + cnn_output + scalar_output
         if self.has_stm:
             ra_space = observation_space["recent_actions"]
+            assert ra_space.shape is not None
             stm_length = int(ra_space.shape[0])
             act_dim = int(ra_space.shape[1])
             # 入力: action(stm*act_dim) + reward(stm) + result(stm) + mask(stm)

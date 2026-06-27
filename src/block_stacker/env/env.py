@@ -263,7 +263,7 @@ class BlockStackerEnv(gym.Env):
         *,
         seed: int | None = None,
         options: dict[str, Any] | None = None,
-    ) -> tuple[np.ndarray, dict[str, Any]]:
+    ) -> tuple[np.ndarray | dict[str, np.ndarray], dict[str, Any]]:
         super().reset(seed=seed)
         if seed is not None:
             self.rng = np.random.default_rng(seed)
@@ -295,7 +295,7 @@ class BlockStackerEnv(gym.Env):
 
     def step(
         self, action: np.ndarray
-    ) -> tuple[np.ndarray, float, bool, bool, dict[str, Any]]:
+    ) -> tuple[np.ndarray | dict[str, np.ndarray], float, bool, bool, dict[str, Any]]:
         assert self.world is not None
 
         pickup_xyz, place_xyz, _place_yaw = decode_action(

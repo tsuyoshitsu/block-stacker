@@ -227,7 +227,7 @@ class WeightedReplayBuffer(DictReplayBuffer):
 
     # ---------------------------------------------------------------- API
 
-    def add(
+    def add(  # type: ignore[override]  # DictReplayBuffer がすでに obs 型を dict に変更済み; mypy は ReplayBuffer 基底と比較するため LSP 警告が出る
         self,
         obs: dict[str, np.ndarray],
         next_obs: dict[str, np.ndarray],
@@ -280,7 +280,7 @@ class WeightedReplayBuffer(DictReplayBuffer):
             self.full = True
             self.pos = 0
 
-    def sample(
+    def sample(  # type: ignore[override]  # DictReplayBuffer がすでに戻り型を DictReplayBufferSamples に変更済み; mypy は ReplayBuffer 基底と比較する
         self,
         batch_size: int,
         env: VecNormalize | None = None,

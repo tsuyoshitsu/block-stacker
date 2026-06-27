@@ -41,6 +41,7 @@ from dataclasses import dataclass
 import pybullet as p
 
 from block_stacker.sim.blocks import get_pose
+from block_stacker.streaming.protocol import Pose
 
 
 @dataclass
@@ -61,13 +62,13 @@ class SleepTracker:
 
     def step(
         self, body_ids: list[int]
-    ) -> tuple[list[tuple[int, tuple[float, ...]]], list[int]]:
+    ) -> tuple[list[tuple[int, Pose]], list[int]]:
         """Inspect velocities; return (sleep_transitions, wake_transitions).
 
         sleep_transitions: list of (body_id, final_pose=(px,py,pz,qx,qy,qz,qw))
         wake_transitions:  list of body_id
         """
-        sleeps: list[tuple[int, tuple[float, ...]]] = []
+        sleeps: list[tuple[int, Pose]] = []
         wakes: list[int] = []
 
         for b in body_ids:
