@@ -70,19 +70,28 @@ function Start-AiServer {
 }
 
 # ---------------------------------------------------------------- checkpoint 列挙
+# 新形式: sac_YYYYMMDD-HHMMSS_<steps>_steps.zip  → RunTs + Steps
+# 旧形式: sac_<steps>_steps.zip (後方互換)        → RunTs = "00000000-000000" + Steps
+# ソートキー: (RunTs, Steps) 昇順。-Descending で降順(最新run・最大steps が[0])。
 function Get-CheckpointsSorted {
     param([string]$Dir, [switch]$Descending)
     if (-not (Test-Path $Dir)) { return @() }
     $items = @(
-        Get-ChildItem $Dir -Filter "sac_*_steps.zip" |
+        Get-ChildItem $Dir -Filter "sac_*.zip" |
             ForEach-Object {
-                if ($_.Name -match "^sac_(\d+)_steps\.zip$") {
-                    [PSCustomObject]@{ Steps = [int]$Matches[1]; FullName = $_.FullName }
+                $ts = $null; $steps = $null
+                if ($_.Name -match "^sac_(\d{8}-\d{6})_(\d+)_steps\.zip$") {
+                    $ts = $Matches[1]; $steps = [int]$Matches[2]
+                } elseif ($_.Name -match "^sac_(\d+)_steps\.zip$") {
+                    $ts = "00000000-000000"; $steps = [int]$Matches[1]
+                }
+                if ($null -ne $ts) {
+                    [PSCustomObject]@{ RunTs = $ts; Steps = $steps; FullName = $_.FullName }
                 }
             }
     )
-    if ($Descending) { return @($items | Sort-Object Steps -Descending) }
-    return @($items | Sort-Object Steps)
+    if ($Descending) { return @($items | Sort-Object RunTs, Steps -Descending) }
+    return @($items | Sort-Object RunTs, Steps)
 }
 
 # ================================================================ main
@@ -125,11 +134,11 @@ $modeLabel    = $null
 if ($freshModels.Count -gt 0) {
     $modelPath = $freshModels[0].FullName
     $fromFresh = $true
-    $modeLabel = "fresh (oldest: $($freshModels[0].Steps) steps, $($freshModels.Count) remaining)"
+    $modeLabel = "fresh (oldest: $($freshModels[0].RunTs) $($freshModels[0].Steps) steps, $($freshModels.Count) remaining)"
 } elseif ($playedModels.Count -gt 0) {
     $modelPath = $playedModels[0].FullName
     $fromFresh = $false
-    $modeLabel = "repeat (fresh/ empty; max played: $($playedModels[0].Steps) steps)"
+    $modeLabel = "repeat (fresh/ empty; max played: $($playedModels[0].RunTs) $($playedModels[0].Steps) steps)"
 } else {
     Write-Host ""
     Write-Host "ERROR: fresh/ and played/ are both empty. Run training first:" -ForegroundColor Red

@@ -16,8 +16,8 @@
 #   - Godot エディタは別途起動して main.tscn を再生 (またはスクリプトが起動)
 #
 # 設計上のポイント（日本語レビューノート）:
-#   - checkpoint を 'sac_<steps>_steps.zip' から抽出。<steps> は学習を通して連続した総タイム
-#     ステップ（ステージ別ではない 1 本の系列）なので、steps 順に並べると学習順になる。
+#   - checkpoint を 'sac_YYYYMMDD-HHMMSS_<steps>_steps.zip' から抽出。
+#     同一 run の 5 本は同じ YYYYMMDD-HHMMSS を共有。(RunTs, Steps) 昇順が学習順。
 #   - 再生は ai_server が「常に最終ステージの世界」で行う（既定で stages[-1] を使う）。
 #     どの段階の checkpoint でも最終ステージ環境で成長を見られる。
 #   - ai_server は子プロセスとして起動、PID 管理して時間後に Stop-Process
@@ -39,6 +39,9 @@ $ErrorActionPreference = "Stop"
 
 # ---------------------------------------------------------------- helpers
 
+# 新形式: sac_YYYYMMDD-HHMMSS_<steps>_steps.zip  → RunTs + Steps
+# 旧形式: sac_<steps>_steps.zip (後方互換)        → RunTs = "00000000-000000" + Steps
+# ソートキー: (RunTs, Steps) 昇順 = 成長順（古い run → 新しい run、同 run 内はステップ昇順）。
 function Get-Checkpoints {
     param([string]$Dir)
     if (-not (Test-Path $Dir)) {
@@ -47,18 +50,26 @@ function Get-Checkpoints {
         Write-Host "  .venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000" -ForegroundColor Yellow
         exit 1
     }
-    Get-ChildItem $Dir -Filter "sac_*_steps.zip" |
+    Get-ChildItem $Dir -Filter "sac_*.zip" |
         ForEach-Object {
-            if ($_.Name -match "^sac_(\d+)_steps\.zip$") {
+            $ts = $null; $steps = $null
+            if ($_.Name -match "^sac_(\d{8}-\d{6})_(\d+)_steps\.zip$") {
+                $ts = $Matches[1]; $steps = [int]$Matches[2]
+            } elseif ($_.Name -match "^sac_(\d+)_steps\.zip$") {
+                $ts = "00000000-000000"; $steps = [int]$Matches[1]
+            }
+            if ($null -ne $ts) {
+                $label = if ($ts -ne "00000000-000000") { "$ts / $steps steps" } else { "$steps steps (legacy)" }
                 [PSCustomObject]@{
-                    Steps    = [int]$Matches[1]
+                    RunTs    = $ts
+                    Steps    = $steps
                     Name     = $_.Name
                     FullName = $_.FullName
-                    Label    = "$($Matches[1]) steps"
+                    Label    = $label
                 }
             }
         } |
-        Sort-Object Steps
+        Sort-Object RunTs, Steps
 }
 
 function Stop-AiServer {

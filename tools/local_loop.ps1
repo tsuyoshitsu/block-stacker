@@ -28,16 +28,25 @@ param(
 $ErrorActionPreference = "Stop"
 
 # ---------------------------------------------------------------- helpers
+# 新形式: sac_YYYYMMDD-HHMMSS_<steps>_steps.zip  → RunTs + Steps
+# 旧形式: sac_<steps>_steps.zip (後方互換)        → RunTs = "00000000-000000" + Steps
+# ソートキー: (RunTs, Steps) 昇順 = 古い run から順に、同 run 内はステップ昇順。
 function Get-CheckpointsSorted {
     param([string]$D)
     if (-not (Test-Path $D)) { return @() }
     @(
-        Get-ChildItem $D -Filter "sac_*_steps.zip" |
+        Get-ChildItem $D -Filter "sac_*.zip" |
             ForEach-Object {
-                if ($_.Name -match "^sac_(\d+)_steps\.zip$") {
-                    [PSCustomObject]@{ Steps = [int]$Matches[1]; FullName = $_.FullName; Name = $_.Name }
+                $ts = $null; $steps = $null
+                if ($_.Name -match "^sac_(\d{8}-\d{6})_(\d+)_steps\.zip$") {
+                    $ts = $Matches[1]; $steps = [int]$Matches[2]
+                } elseif ($_.Name -match "^sac_(\d+)_steps\.zip$") {
+                    $ts = "00000000-000000"; $steps = [int]$Matches[1]
                 }
-            } | Sort-Object Steps
+                if ($null -ne $ts) {
+                    [PSCustomObject]@{ RunTs = $ts; Steps = $steps; FullName = $_.FullName; Name = $_.Name }
+                }
+            } | Sort-Object RunTs, Steps
     )
 }
 
@@ -82,7 +91,7 @@ Write-Host ""
 Write-Host "=== local_loop ===" -ForegroundColor Cyan
 Write-Host "  dir    : $Dir"
 Write-Host "  models : $($models.Count) checkpoints"
-$models | ForEach-Object { Write-Host "    $($_.Steps) steps -> $($_.Name)" -ForegroundColor DarkGray }
+$models | ForEach-Object { Write-Host "    $($_.RunTs) $($_.Steps) steps -> $($_.Name)" -ForegroundColor DarkGray }
 Write-Host "  switch : every ${SwitchSeconds}s"
 Write-Host "  loop   : 1 pass then exit"
 Write-Host ""
@@ -91,7 +100,7 @@ Stop-AiServer
 
 try {
     foreach ($m in $models) {
-        Write-Host "  [$($m.Steps) steps] $($m.Name) for ${SwitchSeconds}s" -ForegroundColor Green
+        Write-Host "  [$($m.RunTs) $($m.Steps) steps] $($m.Name) for ${SwitchSeconds}s" -ForegroundColor Green
         $proc = Start-AiServer -ModelPath $m.FullName -Duration $SwitchSeconds
         if ($null -ne $proc) {
             $proc.WaitForExit(($SwitchSeconds + 10) * 1000) | Out-Null
