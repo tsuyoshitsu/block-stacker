@@ -465,6 +465,8 @@ def main() -> None:
     args = parser.parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
+    # 同一 run の全 checkpoint が共有するタイムスタンプ。ファイル名の先頭に埋め込む。
+    run_ts = datetime.now().strftime("%Y%m%d-%H%M%S")
 
     world_cfg = WorldConfig.from_yaml(args.configs_dir / "world.yaml")
     physics_cfg = PhysicsConfig.from_yaml(args.configs_dir / "physics.yaml")
@@ -570,12 +572,15 @@ def main() -> None:
 
     # チェックポイントは全ステージ通して「ステップ数ごと」に連続記録する（ステージ別にしない）。
     # コールバックを1つ使い回すことで n_calls が連続し、cadence がステージ跨ぎで途切れない。
-    # → fresh/sac_<手数>_steps.zip。advance_day.ps1 / local_loop.ps1 がステップ順に再生。
+    # ファイル名: fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip
+    #   → 同一 run の 5 本は同じ run_ts プレフィックスを共有し、played/ 蓄積時も衝突しない。
+    #   → advance_day.ps1 / local_loop.ps1 は (run_ts, steps) 昇順で再生。
     checkpoint_cb = CheckpointCallback(
         save_freq=save_freq,
         save_path=str(args.output_dir / "fresh"),
-        name_prefix="sac",
+        name_prefix=f"sac_{run_ts}",
     )
+    LOG.info("Checkpoint prefix: sac_%s (same across all %d splits)", run_ts, splits)
 
     completed_stages: list[int] = []
     model: SAC | None = None
