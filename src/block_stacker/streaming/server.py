@@ -94,7 +94,7 @@ class StreamingServer:
             # Step 1: optional hello (ignored content for MVP 3).
             try:
                 await asyncio.wait_for(websocket.recv(), timeout=self._hello_timeout_s)
-            except (asyncio.TimeoutError, websockets.ConnectionClosed):
+            except (TimeoutError, websockets.ConnectionClosed):
                 pass
 
             # Step 2: world_config

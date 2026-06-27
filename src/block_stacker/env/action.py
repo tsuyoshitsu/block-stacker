@@ -23,7 +23,8 @@ Yaw is mapped to [-pi, pi].
       place_z_max_eff は以下で算出（壁高クランプあり）:
         place_z_max_eff = min(z_max/2, boundary_height - _APPROACH_OFFSET - _WALL_MARGIN)
       キャリア軌跡のピーク = place_z + lift_height（最小 = approach_offset）。
-      ピーク ≤ place_z_max_eff + approach_offset = boundary_height - _WALL_MARGIN < boundary_height。
+      ピーク ≤ place_z_max_eff + approach_offset
+      = boundary_height - _WALL_MARGIN < boundary_height。
       → AI が壁高を超える配置を指示しても確実に壁内に収まる。
     - place_yaw: cube では使わない（回転対称）。立方体以外の形状で必要。
 

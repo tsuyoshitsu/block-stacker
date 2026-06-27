@@ -60,7 +60,7 @@ async def run_client(uri: str, duration: float) -> None:
             while time.monotonic() - t_start < duration:
                 try:
                     data = await asyncio.wait_for(ws.recv(), timeout=duration)
-                except asyncio.TimeoutError:
+                except TimeoutError:
                     break
                 if isinstance(data, str):
                     LOG.warning("unexpected text frame: %s", data[:80])

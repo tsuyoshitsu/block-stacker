@@ -69,7 +69,7 @@ class WorldConfig:
     initial_scatter: InitialScatterConfig
 
     @classmethod
-    def from_yaml(cls, path: Path) -> "WorldConfig":
+    def from_yaml(cls, path: Path) -> WorldConfig:
         data = _load_yaml(path)
         shapes = {
             name: ShapeSpec(
@@ -143,7 +143,7 @@ class PhysicsConfig:
     carrier_approach_offset: float
 
     @classmethod
-    def from_yaml(cls, path: Path) -> "PhysicsConfig":
+    def from_yaml(cls, path: Path) -> PhysicsConfig:
         data = _load_yaml(path)
         sim = data["simulation"]
         friction = data["friction"]
@@ -195,7 +195,7 @@ class RewardConfig:
     flatness_scale: float
 
     @classmethod
-    def from_yaml(cls, path: Path) -> "RewardConfig":
+    def from_yaml(cls, path: Path) -> RewardConfig:
         data = _load_yaml(path)
         return cls(
             place_success=float(data["place_success"]),

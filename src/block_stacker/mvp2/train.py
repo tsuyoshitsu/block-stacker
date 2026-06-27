@@ -8,8 +8,8 @@ Differences from MVP 1:
     - MultiInputPolicy instead of MlpPolicy
 
 Run:
-    uv run python -m block_stacker.mvp2.train
-    uv run python -m block_stacker.mvp2.train --total-timesteps 30000 --n-envs 8
+    .venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000
+    .venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000 --resume
 
 ----------------------------------------------------------------------
 レビューノート（日本語）
@@ -44,9 +44,10 @@ import argparse
 import json
 import logging
 import multiprocessing as mp
+from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Callable
+from typing import Any
 
 import yaml
 from stable_baselines3 import SAC
@@ -235,9 +236,9 @@ def main() -> None:
     # SB3 CheckpointCallback の save_freq は「1 本の環境ストリームあたりのステップ数
     # (= n_calls)」基準のため、n_envs 並列では n_envs で割って実際の通算ステップを合わせる。
     #
-    # 例: total_timesteps=100000, splits=5, n_envs=6
-    #   save_freq = 100000 // 5 // 6 = 3333
-    #   実際の保存ステップ: 3333*6=19998, 6666*6=39996, ... ≈ 20/40/60/80/100 %
+    # 例: total_timesteps=4000, splits=5, n_envs=6
+    #   save_freq = 4000 // 5 // 6 = 133
+    #   実際の保存ステップ: 133*6=798, 266*6=1596, ... ≈ 20/40/60/80/100 %
     #
     # 最終地点（100 %）の checkpoint は sac_final.zip と内容が重複するが、
     # demo_checkpoints.ps1 / curate_week.ps1 が checkpoints/ を参照して等間隔選出するため
@@ -327,7 +328,7 @@ def main() -> None:
         # 長期記憶（WeightedReplayBuffer）をロード
         if buf_path.exists():
             model.load_replay_buffer(str(buf_path))
-            if hasattr(model.replay_buffer, "global_step"):
+            if isinstance(model.replay_buffer, WeightedReplayBuffer):
                 elapsed = _compute_elapsed_steps(resume_cfg, resume_state)
                 if elapsed > 0:
                     old_gs = model.replay_buffer.global_step

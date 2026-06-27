@@ -557,7 +557,7 @@ async def main_async(args: argparse.Namespace) -> None:
                     asyncio.gather(physics_task, ai_task, serve_task),
                     timeout=args.duration,
                 )
-            except asyncio.TimeoutError:
+            except TimeoutError:
                 LOG.info("--duration %.1fs elapsed, shutting down", args.duration)
         else:
             await asyncio.gather(physics_task, ai_task, serve_task)

@@ -50,8 +50,8 @@ from collections.abc import Awaitable, Callable
 from block_stacker.sim.world import World
 from block_stacker.streaming.protocol import (
     pack_heartbeat,
-    pack_snapshot,
     pack_sleep_event,
+    pack_snapshot,
     pack_wake_event,
     pose_from_body,
 )
