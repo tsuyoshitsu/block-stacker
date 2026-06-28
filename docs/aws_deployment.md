@@ -1,4 +1,4 @@
-# AWS デプロイ手順書（block-stacker / CLI 版）
+﻿# AWS デプロイ手順書（block-stacker / CLI 版）
 
 このドキュメントは block-stacker を AWS にデプロイする手順書です。
 **AWS CLI** + **PowerShell スクリプト**（`deploy/`）で実施します。
@@ -195,7 +195,7 @@ docker push "$REGISTRY/block-stacker/learner:latest"
 
 ```powershell
 # find_latest_checkpoint で最新 run の最大ステップ checkpoint を取得（ソートキー: (run_ts, steps) 降順）
-$model = & .venv\Scripts\python.exe -c "from block_stacker.training.checkpoint import find_latest_checkpoint; from pathlib import Path; p = find_latest_checkpoint(Path('output/mvp2')); print(p)"
+$model = & .venv\Scripts\python.exe -c "from block_stacker.training.checkpoint import find_latest_checkpoint; from pathlib import Path; p = find_latest_checkpoint(Path('output/training')); print(p)"
 aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 ```
 
@@ -400,7 +400,7 @@ aws s3 cp configs/training.yaml s3://bs-app-$ACCOUNT/configs/training.yaml
 .venv\Scripts\python.exe -m block_stacker.training.train --total-timesteps 4000 --n-envs 4
 
 # S3 にアップロード（fresh/ の最大ステップ checkpoint を最新モデルとして）
-$model = (Get-ChildItem "output\mvp2\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
+$model = (Get-ChildItem "output\training\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
 aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 # デモ EC2 は次回 collapse 時 (or 再起動時) に S3 からモデル再ロード
 ```
@@ -823,7 +823,7 @@ WsClient.cs が ReadPoseTransform で Godot Y-up に変換: (x, y, z) → (x, z,
 ### F.1 記憶バッファの永続化（save_replay_buffer / load_replay_buffer）
 
 > **✅ ローカル学習では実装済み**（`training/train.py` の `--resume` 機能）。学習完了時に
-> `output/mvp2/replay_buffer.pkl` と `resume_state.json` が保存され、次回 `--resume` で復元。
+> `output/training/replay_buffer.pkl` と `resume_state.json` が保存され、次回 `--resume` で復元。
 > AWS 側への S3 自動アップロード（learner.sh への追加）は未実装（残 TODO）。
 
 **何ができるか:** 長期記憶（WeightedReplayBuffer）の中身を pickle で S3 に保存し、
@@ -1031,12 +1031,12 @@ memory_system:
 
 - `--n-envs 6`: 物理コア数に合わせる（クラウドは 8、ローカルは 4〜6）
 - `--total-timesteps 4000`: 週次配信標準。約 1 分で 5 本の checkpoint（20/40/60/80/100% 地点）
-- `output/mvp2/fresh/sac_<N>_steps.zip` が `total_timesteps` の等分地点（`checkpoint_splits=5`）で保存（ステージ番号はファイル名に含まれない。`sac_final.zip` は廃止）
+- `output/training/fresh/sac_<N>_steps.zip` が `total_timesteps` の等分地点（`checkpoint_splits=5`）で保存（ステージ番号はファイル名に含まれない。`sac_final.zip` は廃止）
 
 ### G.2 TensorBoard で学習曲線を見る（別ターミナル）
 
 ```powershell
-.venv\Scripts\python.exe -m tensorboard.main --logdir output\mvp2\tb
+.venv\Scripts\python.exe -m tensorboard.main --logdir output\training\tb
 # ブラウザで http://localhost:6006 を開く
 ```
 
@@ -1073,7 +1073,7 @@ tools\demo_checkpoints.ps1 -Mode auto -Seconds 30 -LaunchGodot
 
 ```powershell
 $ACCOUNT = aws sts get-caller-identity --query Account --output text
-$model = (Get-ChildItem "output\mvp2\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
+$model = (Get-ChildItem "output\training\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
 aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 ```
 
@@ -1126,7 +1126,7 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 
 ### モデルの準備
 
-- [ ] ローカルで `training.train` を回して `output/mvp2/fresh/` に checkpoint 生成
+- [ ] ローカルで `training.train` を回して `output/training/fresh/` に checkpoint 生成
 - [ ] `aws s3 cp` で S3 にアップロード (`s3://bs-app-<ACCOUNT>/models/latest.pt`)
 - [ ] クラウドデモ起動時に S3 から取り込まれることを確認
 

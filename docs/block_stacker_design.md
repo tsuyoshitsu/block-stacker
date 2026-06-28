@@ -1,4 +1,4 @@
-# 積み木AI配信サービス 設計書
+﻿# 積み木AI配信サービス 設計書
 
 ## 1. プロジェクト概要
 
@@ -212,7 +212,7 @@ observation = {
 が一斉に古くなる。強い記憶（`collapse` 初期重み 1.0）は弱い記憶（`no_progress` 0.1）
 より長く生き残る（`weight_floor` が下限）。
 
-学習完了時に `replay_buffer.pkl` と `resume_state.json` が `output/mvp2/` に**毎回**保存される。
+学習完了時に `replay_buffer.pkl` と `resume_state.json` が `output/training/` に**毎回**保存される。
 `resume_state.json` には `num_timesteps`, `next_stage_id`, `completed_stages`, `timestamp` が記録される。
 
 設定（`configs/training.yaml` の `resume:` セクション）:

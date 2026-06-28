@@ -1,4 +1,4 @@
-# ローカル試運転手順書（成長観察デモ）
+﻿# ローカル試運転手順書（成長観察デモ）
 
 ローカルで SAC を学習させながら、**timestep ごとの checkpoint** をデモ再生して、AI の
 成長過程を観察するためのガイド。
@@ -12,7 +12,7 @@
 ┌──────────────────────────────────────────────────────────┐
 │ 1. 学習を回す                                            │
 │    python -m block_stacker.training.train --total-timesteps 4000  │
-│    → output/mvp2/fresh/ に sac_20260627-143022_800_steps.zip...  │
+│    → output/training/fresh/ に sac_20260627-143022_800_steps.zip...  │
 └──────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -85,11 +85,11 @@
 > でも上書きできる（env var > training.yaml > 既定）。本番（AWS の learner）も既定でカリキュラム ON。
 
 学習中：
-- `output/mvp2/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` が **`total_timesteps` の 20/40/60/80/100% 地点**で保存される（5本固定）。
+- `output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` が **`total_timesteps` の 20/40/60/80/100% 地点**で保存される（5本固定）。
   先頭の日時（`run_ts`）は同一 run の 5 本で共通。ファイル名のステップ数は全ステージ通算の連続値。`configs/training.yaml` の `sac.checkpoint_splits`（既定 5）で分割数を変更可。
   最後の checkpoint（100% 地点）が最終モデル相当（`sac_final.zip` は廃止）。
-- `output/mvp2/tb/` に TensorBoard ログが書かれる
-- `output/mvp2/replay_buffer.pkl`（長期記憶）と `output/mvp2/resume_state.json` が**毎回**保存される（次回 `--resume` で利用）
+- `output/training/tb/` に TensorBoard ログが書かれる
+- `output/training/replay_buffer.pkl`（長期記憶）と `output/training/resume_state.json` が**毎回**保存される（次回 `--resume` で利用）
 - **前回の学習の `fresh/` が残っている場合**: 学習開始時に自動で `played/` へ退避してから新しい checkpoint を `fresh/` に生成する
 
 #### 前回の学習を引き継ぐ（--resume）
@@ -111,7 +111,7 @@
 別ターミナルで TensorBoard を起動すると学習曲線がリアルタイムで見られる：
 
 ```powershell
-.venv\Scripts\python.exe -m tensorboard.main --logdir output\mvp2\tb
+.venv\Scripts\python.exe -m tensorboard.main --logdir output\training\tb
 # ブラウザで http://localhost:6006 を開く
 ```
 
@@ -183,10 +183,10 @@ tools\local_loop.ps1
 tools\local_loop.ps1 -SwitchSeconds 30
 
 # played/ を指定（先の学習分を観察したいとき）
-tools\local_loop.ps1 -Dir output\mvp2\played
+tools\local_loop.ps1 -Dir output\training\played
 ```
 
-`played/` を直接選んで再生したいときは `demo_checkpoints.ps1 -CheckpointsDir output\mvp2\played` も使える。
+`played/` を直接選んで再生したいときは `demo_checkpoints.ps1 -CheckpointsDir output\training\played` も使える。
 
 ### Step 4: 観察する
 
@@ -214,7 +214,7 @@ tools\local_loop.ps1 -Dir output\mvp2\played
 
 | パラメータ | デフォルト | 説明 |
 |----------|---------|------|
-| `-CheckpointsDir` | `output\mvp2\fresh` | checkpoint ディレクトリ（fresh/ または played/ を指定） |
+| `-CheckpointsDir` | `output\training\fresh` | checkpoint ディレクトリ（fresh/ または played/ を指定） |
 | `-Seconds` | 60 | 各 checkpoint の再生時間（秒）|
 | `-Mode` | `interactive` | `interactive` (一つ選ぶ) または `auto` (全部順番) |
 | `-Python` | `.venv\Scripts\python.exe` | Python 実行パス |
@@ -225,7 +225,7 @@ tools\local_loop.ps1 -Dir output\mvp2\played
 
 | パラメータ | デフォルト | 説明 |
 |----------|---------|------|
-| `-Dir` | `output\mvp2\fresh` | checkpoint ディレクトリ |
+| `-Dir` | `output\training\fresh` | checkpoint ディレクトリ |
 | `-SwitchSeconds` | `60` | 1 モデルあたりの再生秒数 |
 | `-Python` | `.venv\Scripts\python.exe` | Python 実行パス |
 | `-AiHost` | `127.0.0.1` | ai_server の listen ホスト |
@@ -235,9 +235,9 @@ tools\local_loop.ps1 -Dir output\mvp2\played
 
 | パラメータ | デフォルト | 説明 |
 |----------|---------|------|
-| `-FreshDir` | `output\mvp2\fresh` | 新しい checkpoint のディレクトリ |
-| `-PlayedDir` | `output\mvp2\played` | 再生済み checkpoint の退避先 |
-| `-StateFile` | `output\mvp2\advance_state.json` | 前回状態の記録ファイル |
+| `-FreshDir` | `output\training\fresh` | 新しい checkpoint のディレクトリ |
+| `-PlayedDir` | `output\training\played` | 再生済み checkpoint の退避先 |
+| `-StateFile` | `output\training\advance_state.json` | 前回状態の記録ファイル |
 | `-Python` | `.venv\Scripts\python.exe` | Python 実行パス |
 | `-AiHost` | `127.0.0.1` | ai_server の listen ホスト |
 | `-AiPort` | `8765` | ai_server の listen ポート |
@@ -301,7 +301,7 @@ i7-10750H (6 物理コア) 想定:
 ```powershell
 $ACCOUNT = aws sts get-caller-identity --query Account --output text
 # fresh/ の最大ステップ checkpoint を最新モデルとして S3 にアップ
-$model = & .venv\Scripts\python.exe -c "from block_stacker.training.checkpoint import find_latest_checkpoint; from pathlib import Path; p = find_latest_checkpoint(Path('output/mvp2')); print(p)"
+$model = & .venv\Scripts\python.exe -c "from block_stacker.training.checkpoint import find_latest_checkpoint; from pathlib import Path; p = find_latest_checkpoint(Path('output/training')); print(p)"
 aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 ```
 
@@ -370,14 +370,14 @@ tools\advance_day.ps1 -DurationSeconds 7200
 .venv\Scripts\python.exe -m block_stacker.serving.ai_server --duration 300
 
 # advance_state.json を確認（今日のモデルと PID）
-Get-Content output\mvp2\advance_state.json
+Get-Content output\training\advance_state.json
 ```
 
 ### ディレクトリ構造
 
 ```
 output/
-  mvp2/
+  training/
     fresh/                 ← 学習直後の新しい checkpoint（advance_day が消費して played/ へ）
       sac_20260627-143022_800_steps.zip
       sac_20260627-143022_1600_steps.zip

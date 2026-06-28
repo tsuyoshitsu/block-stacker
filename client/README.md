@@ -88,7 +88,7 @@ client/
 | プロパティ | デフォルト | 説明 |
 |----------|---------|------|
 | `ServerUri` | `ws://localhost:8765` | 接続先 WebSocket URL |
-| `HelloPayload` | `{"client_version":"godot-csharp-mvp3"}` | 接続直後に送るハンドシェイク文字列 |
+| `HelloPayload` | `{"client_version":"godot-csharp-v1"}` | 接続直後に送るハンドシェイク文字列 |
 | `AutoReconnectSeconds` | `2.0` | 切断検知後の自動再接続待ち時間 |
 | `ConnectingText` | `サーバとの通信を試行中` | 接続未確立時に画面中央に表示するメッセージ |
 
