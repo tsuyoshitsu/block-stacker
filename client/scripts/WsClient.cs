@@ -26,7 +26,7 @@ public partial class WsClient : Node3D
     // localhost にすると Windows で IPv6 (::1) を先に試して timeout 待ちになることがあるため、
     // 明示的に IPv4 アドレスを既定値に。本番デプロイ時は Inspector から書き換える。
     [Export] public string ServerUri = "ws://127.0.0.1:8765";
-    [Export] public string HelloPayload = "{\"client_version\":\"godot-csharp-mvp3\"}";
+    [Export] public string HelloPayload = "{\"client_version\":\"godot-csharp-v1\"}";
     [Export] public float AutoReconnectSeconds = 2.0f;
     [Export] public string ConnectingText = "サーバとの通信を試行中";
 

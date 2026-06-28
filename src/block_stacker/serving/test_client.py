@@ -43,7 +43,7 @@ async def run_client(uri: str, duration: float) -> None:
     LOG.info("connecting to %s", uri)
     async with websockets.connect(uri) as ws:
         # Send a trivial hello so the server can move past the handshake.
-        await ws.send(b'{"client_version":"mvp3-test"}')
+        await ws.send(b'{"client_version":"test-client"}')
 
         counts: Counter[MsgType] = Counter()
         latest_ts: dict[MsgType, float] = {}
