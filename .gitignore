@@ -39,3 +39,7 @@ client/obj/
 
 # Editor/backup leftovers
 *.old
+
+# uv artifacts — env は python.org 製 .venv を直接使うため uv 管理しない
+uv.lock
+.python-version
