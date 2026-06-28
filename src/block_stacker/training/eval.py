@@ -29,13 +29,13 @@ from block_stacker.config import (
     default_configs_dir,
 )
 from block_stacker.env.env import BlockStackerEnv
-from block_stacker.mvp2.checkpoint import find_latest_checkpoint
+from block_stacker.training.checkpoint import find_latest_checkpoint
 
-LOG = logging.getLogger("mvp2.eval")
+LOG = logging.getLogger("training.eval")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="block_stacker.mvp2.eval")
+    parser = argparse.ArgumentParser(prog="block_stacker.training.eval")
     parser.add_argument("--model", type=Path, default=None,
                         help="モデルパス。無指定なら fresh/ / played/ の最大ステップを自動選択")
     parser.add_argument("--configs-dir", type=Path, default=default_configs_dir())

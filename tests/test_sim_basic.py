@@ -86,7 +86,7 @@ def test_rescatter_blocks_repositions_all(
     world_cfg: WorldConfig, physics_cfg: PhysicsConfig
 ) -> None:
     """デモの散布0 リセット: 全ブロックが body_id を保ったまま新しい位置へ動き、姿勢は有限。"""
-    from block_stacker.mvp3.ai_server import rescatter_blocks, spawn_stage_blocks
+    from block_stacker.serving.ai_server import rescatter_blocks, spawn_stage_blocks
 
     world = setup_world(world_cfg, physics_cfg, gui=False)
     try:

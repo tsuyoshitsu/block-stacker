@@ -26,7 +26,7 @@
 関連:
     - configs/training.yaml: curriculum.graduation (window / threshold / ratio)
     - env/env.py: info["is_success"] の算出
-    - mvp2/train.py: ステージ進行ループ本体
+    - training/train.py: ステージ進行ループ本体
 """
 from __future__ import annotations
 

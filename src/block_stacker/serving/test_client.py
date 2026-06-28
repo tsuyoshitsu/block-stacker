@@ -2,8 +2,8 @@
 a running summary of received messages.
 
 Run (after starting demo_server):
-    uv run python -m block_stacker.mvp3.test_client
-    uv run python -m block_stacker.mvp3.test_client --uri ws://localhost:8765 --seconds 10
+    uv run python -m block_stacker.serving.test_client
+    uv run python -m block_stacker.serving.test_client --uri ws://localhost:8765 --seconds 10
 
 ----------------------------------------------------------------------
 レビューノート（日本語）
@@ -36,7 +36,7 @@ import websockets
 
 from block_stacker.streaming.protocol import MsgType, parse_message
 
-LOG = logging.getLogger("mvp3.client")
+LOG = logging.getLogger("serving.client")
 
 
 async def run_client(uri: str, duration: float) -> None:
@@ -112,7 +112,7 @@ async def run_client(uri: str, duration: float) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="block_stacker.mvp3.test_client")
+    parser = argparse.ArgumentParser(prog="block_stacker.serving.test_client")
     parser.add_argument("--uri", default="ws://localhost:8765")
     parser.add_argument("--seconds", type=float, default=8.0)
     args = parser.parse_args()

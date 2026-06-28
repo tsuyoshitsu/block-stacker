@@ -47,7 +47,7 @@ function Get-Checkpoints {
     if (-not (Test-Path $Dir)) {
         Write-Host "checkpoint ディレクトリが見つかりません: $Dir" -ForegroundColor Red
         Write-Host "先に学習を回してください:" -ForegroundColor Yellow
-        Write-Host "  .venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000" -ForegroundColor Yellow
+        Write-Host "  .venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000" -ForegroundColor Yellow
         exit 1
     }
     Get-ChildItem $Dir -Filter "sac_*.zip" |
@@ -74,7 +74,7 @@ function Get-Checkpoints {
 
 function Stop-AiServer {
     Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
-        Where-Object { $_.CommandLine -and $_.CommandLine -match "block_stacker\.mvp3\.ai_server" } |
+        Where-Object { $_.CommandLine -and $_.CommandLine -match "block_stacker.serving.ai_server" } |
         ForEach-Object {
             Write-Host "  stopping ai_server PID $($_.ProcessId)" -ForegroundColor DarkGray
             Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue
@@ -85,7 +85,7 @@ function Start-AiServer {
     param([string]$ModelPath)
     $proc = Start-Process -FilePath $Python `
         -ArgumentList @(
-            "-m", "block_stacker.mvp3.ai_server",
+            "-m", "block_stacker.serving.ai_server",
             "--model", $ModelPath,
             "--host", "127.0.0.1"
         ) -PassThru -WindowStyle Hidden

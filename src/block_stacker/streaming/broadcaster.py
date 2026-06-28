@@ -38,7 +38,7 @@ just configure it and provide their per-step hook.
       driver.tick は 1 next(iterator) 呼び出しのみで軽量。
 
 関連:
-    - 呼び出し元: mvp3/demo_server.py、mvp3/ai_server.py
+    - 呼び出し元: serving/demo_server.py、serving/ai_server.py
     - 依存: streaming/sleep_tracker.py、streaming/server.py、streaming/protocol.py
 """
 from __future__ import annotations

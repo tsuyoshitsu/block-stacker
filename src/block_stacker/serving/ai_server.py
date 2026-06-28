@@ -16,8 +16,8 @@ contributes only:
     - block spawning per curriculum stage（既定は最終ステージ＝全形状。--stage で変更可）
 
 Run:
-    .venv\Scripts\python.exe -m block_stacker.mvp3.ai_server
-    .venv\Scripts\python.exe -m block_stacker.mvp3.ai_server --port 8765 \
+    .venv\Scripts\python.exe -m block_stacker.serving.ai_server
+    .venv\Scripts\python.exe -m block_stacker.serving.ai_server --port 8765 \
         --model output/mvp2/fresh/sac_3990_steps.zip --thinking-pause 1.0
 
 ----------------------------------------------------------------------
@@ -52,8 +52,8 @@ Run:
       asyncio.to_thread への切り出し検討。
 
 関連:
-    - 学習: src/block_stacker/mvp2/train.py（SAC + 重みつき記憶、観測 dim と一致させる必要あり）
-    - 共通: src/block_stacker/mvp3/runtime.py
+    - 学習: src/block_stacker/training/train.py（SAC + 重みつき記憶、観測 dim と一致させる必要あり）
+    - 共通: src/block_stacker/serving/runtime.py
     - 設計: 設計書 §4 (AI/RL設計) §8 (AWS構成)
 """
 from __future__ import annotations
@@ -83,9 +83,7 @@ from block_stacker.env.action import decode_action
 from block_stacker.env.env import EVENT_TO_RESULT_SCORE, inventory_full_stack_height
 from block_stacker.env.observation import pack_observation_dict
 from block_stacker.env.tower import find_tower_blocks, tower_base_xy, tower_height
-from block_stacker.mvp2.checkpoint import find_latest_checkpoint
-from block_stacker.mvp2.curriculum import resolve_graduation, stage_inventory
-from block_stacker.mvp3.runtime import setup_streaming_runtime
+from block_stacker.serving.runtime import setup_streaming_runtime
 from block_stacker.sim.blocks import (
     Block,
     create_block,
@@ -104,8 +102,10 @@ from block_stacker.sim.world import World, setup_world
 from block_stacker.streaming.broadcaster import PhysicsBroadcaster
 from block_stacker.streaming.protocol import pack_collapse_event
 from block_stacker.streaming.server import StreamingServer
+from block_stacker.training.checkpoint import find_latest_checkpoint
+from block_stacker.training.curriculum import resolve_graduation, stage_inventory
 
-LOG = logging.getLogger("mvp3.ai")
+LOG = logging.getLogger("serving.ai")
 
 
 # --------------------------------------------------------------- shared state
@@ -556,7 +556,7 @@ async def main_async(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="block_stacker.mvp3.ai_server")
+    parser = argparse.ArgumentParser(prog="block_stacker.serving.ai_server")
     parser.add_argument("--model", type=Path, default=None,
                         help="推論モデル。無指定なら fresh/ / played/ の最大ステップを自動選択")
     parser.add_argument("--host", default="0.0.0.0")

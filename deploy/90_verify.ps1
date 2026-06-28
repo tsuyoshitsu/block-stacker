@@ -35,7 +35,7 @@ aws ec2 describe-instances `
 Write-Step "wss:// 接続テスト (Python test_client、15 秒)"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location $repoRoot
-uv run python -m block_stacker.mvp3.test_client --uri "wss://$($script:BS.DomainName)/" --seconds 15
+uv run python -m block_stacker.serving.test_client --uri "wss://$($script:BS.DomainName)/" --seconds 15
 Pop-Location
 
 Write-Host ""

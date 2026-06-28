@@ -37,7 +37,7 @@ docker run -d --name demo --restart unless-stopped \
     -v /opt/bs/configs:/app/configs \
     -e APP_BUCKET="$APP_BUCKET" \
     "$ECR_REGISTRY/block-stacker/demo:latest" \
-    block_stacker.mvp3.ai_server \
+    block_stacker.serving.ai_server \
         --model /app/models/latest.pt \
         --port 8765 \
         --configs-dir /app/configs

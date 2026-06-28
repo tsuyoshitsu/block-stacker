@@ -5,8 +5,8 @@ periodically perturbs random blocks (so awake/sleep transitions actually
 happen), and broadcasts to any connected WebSocket clients.
 
 Run:
-    uv run python -m block_stacker.mvp3.demo_server
-    uv run python -m block_stacker.mvp3.demo_server --port 9000 --no-perturb
+    uv run python -m block_stacker.serving.demo_server
+    uv run python -m block_stacker.serving.demo_server --port 9000 --no-perturb
 
 ----------------------------------------------------------------------
 レビューノート（日本語）
@@ -44,12 +44,12 @@ from block_stacker.config import (
     WorldConfig,
     default_configs_dir,
 )
-from block_stacker.mvp3.runtime import setup_streaming_runtime
+from block_stacker.serving.runtime import setup_streaming_runtime
 from block_stacker.sim.blocks import Block, create_block
 from block_stacker.sim.world import setup_world
 from block_stacker.streaming.broadcaster import PhysicsBroadcaster
 
-LOG = logging.getLogger("mvp3.demo")
+LOG = logging.getLogger("serving.demo")
 
 
 def spawn_blocks(world_cfg: WorldConfig, physics_cfg: PhysicsConfig) -> list[Block]:
@@ -139,7 +139,7 @@ async def main_async(args: argparse.Namespace) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="block_stacker.mvp3.demo_server")
+    parser = argparse.ArgumentParser(prog="block_stacker.serving.demo_server")
     parser.add_argument("--host", default="0.0.0.0")
     parser.add_argument("--port", type=int, default=8765)
     parser.add_argument("--configs-dir", type=Path, default=default_configs_dir())

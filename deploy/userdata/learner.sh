@@ -32,7 +32,7 @@ docker run -d --name learner --restart unless-stopped \
     -v /opt/bs/configs:/app/configs \
     -e APP_BUCKET="$APP_BUCKET" \
     "$ECR_REGISTRY/block-stacker/learner:latest" \
-    block_stacker.mvp2.train \
+    block_stacker.training.train \
         --total-timesteps 1000000 \
         --n-envs 8 \
         --use-subproc \

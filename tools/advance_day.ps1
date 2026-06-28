@@ -36,7 +36,7 @@ $ErrorActionPreference = "Stop"
 function Stop-AiServer {
     $procs = @(
         Get-CimInstance Win32_Process -Filter "Name = 'python.exe'" |
-            Where-Object { $_.CommandLine -and $_.CommandLine -match "block_stacker\.mvp3\.ai_server" }
+            Where-Object { $_.CommandLine -and $_.CommandLine -match "block_stacker.serving.ai_server" }
     )
     if ($procs.Count -eq 0) {
         Write-Host "  (ai_server not running)" -ForegroundColor DarkGray
@@ -52,7 +52,7 @@ function Stop-AiServer {
 function Start-AiServer {
     param([string]$ModelPath, [int]$Duration = 0)
     $argList = @(
-        "-m", "block_stacker.mvp3.ai_server",
+        "-m", "block_stacker.serving.ai_server",
         "--model", $ModelPath,
         "--host", $AiHost,
         "--port", $AiPort
@@ -142,7 +142,7 @@ if ($freshModels.Count -gt 0) {
 } else {
     Write-Host ""
     Write-Host "ERROR: fresh/ and played/ are both empty. Run training first:" -ForegroundColor Red
-    Write-Host "  .venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000" -ForegroundColor Yellow
+    Write-Host "  .venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000" -ForegroundColor Yellow
     exit 1
 }
 

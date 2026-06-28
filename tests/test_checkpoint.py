@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import pytest
 
-from block_stacker.mvp2.checkpoint import (
+from block_stacker.training.checkpoint import (
     _OLD_TS,
     _parse_checkpoint_name,
     find_latest_checkpoint,

@@ -8,8 +8,9 @@ Differences from MVP 1:
     - MultiInputPolicy instead of MlpPolicy
 
 Run:
-    .venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000
-    .venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000 --resume
+    .venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000
+    .venv\Scripts\python.exe -m block_stacker.training.train \
+        --n-envs 6 --total-timesteps 4000 --resume
 
 ----------------------------------------------------------------------
 レビューノート（日本語）
@@ -34,7 +35,7 @@ Run:
       buffer_size=50k なら 1 step あたり ms オーダー、無視できるコスト。
 
 関連:
-    - 推論: src/block_stacker/mvp3/ai_server.py（同じ Dict 観測 + 短期記憶を再現）
+    - 推論: src/block_stacker/serving/ai_server.py（同じ Dict 観測 + 短期記憶を再現）
     - 重みつきバッファ: src/block_stacker/policy/weighted_replay_buffer.py
     - 設定: configs/training.yaml の sac: + memory_system: + short_term_memory:
 """
@@ -62,17 +63,17 @@ from block_stacker.config import (
     default_configs_dir,
 )
 from block_stacker.env.env import BlockStackerEnv, inventory_full_stack_height
-from block_stacker.mvp2.checkpoint import find_latest_checkpoint
-from block_stacker.mvp2.curriculum import (
+from block_stacker.policy.feature_extractor import HybridFeatureExtractor
+from block_stacker.policy.weighted_replay_buffer import WeightedReplayBuffer
+from block_stacker.training.checkpoint import find_latest_checkpoint
+from block_stacker.training.curriculum import (
     GraduationCallback,
     StageMonitorCallback,
     resolve_graduation,
     stage_inventory,
 )
-from block_stacker.policy.feature_extractor import HybridFeatureExtractor
-from block_stacker.policy.weighted_replay_buffer import WeightedReplayBuffer
 
-LOG = logging.getLogger("mvp2.train")
+LOG = logging.getLogger("training.train")
 
 
 def _compute_elapsed_steps(resume_cfg: dict[str, Any], resume_state: dict[str, Any]) -> int:
@@ -444,7 +445,7 @@ def _save_end_state(
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="block_stacker.mvp2.train")
+    parser = argparse.ArgumentParser(prog="block_stacker.training.train")
     parser.add_argument("--configs-dir", type=Path, default=default_configs_dir())
     parser.add_argument("--total-timesteps", type=int, default=None)
     parser.add_argument("--n-envs", type=int, default=None)
