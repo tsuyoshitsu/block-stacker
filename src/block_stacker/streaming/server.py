@@ -91,7 +91,7 @@ class StreamingServer:
         LOG.info("client connected from %s", addr)
         self._clients.add(websocket)
         try:
-            # Step 1: optional hello (ignored content for MVP 3).
+            # Step 1: optional hello (server does not validate client_version).
             try:
                 await asyncio.wait_for(websocket.recv(), timeout=self._hello_timeout_s)
             except (TimeoutError, websockets.ConnectionClosed):

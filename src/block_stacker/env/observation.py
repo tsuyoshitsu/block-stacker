@@ -51,7 +51,7 @@ Per-block features (13 + K dims, K = number of known shapes):
 
 レビューで見る観点:
     - K (n_shapes) は env コンストラクタ時の世界設定で決まる。
-      学習時と推論時で同じ世界設定を使うことが前提（mvp3/ai_server も同様）。
+      学習時と推論時で同じ世界設定を使うことが前提（serving/ai_server も同様）。
 """
 from __future__ import annotations
 

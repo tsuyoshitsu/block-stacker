@@ -1,6 +1,6 @@
-"""MVP 2: SAC training with Set Transformer + Heightmap CNN + 短期記憶 + 重みつき記憶バッファ。
+"""SAC training with Set Transformer + Heightmap CNN + 短期記憶 + 重みつき記憶バッファ。
 
-Differences from MVP 1:
+Features:
     - Dict observation (blocks + mask + heightmap + scalar + optional 短期記憶)
     - Custom feature extractor (HybridFeatureExtractor)
     - WeightedReplayBuffer による「人間っぽい記憶」ダイナミクス
@@ -8,8 +8,8 @@ Differences from MVP 1:
     - MultiInputPolicy instead of MlpPolicy
 
 Run:
-    .venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000
-    .venv\Scripts\python.exe -m block_stacker.training.train \
+    .venv/Scripts/python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000
+    .venv/Scripts/python.exe -m block_stacker.training.train ^
         --n-envs 6 --total-timesteps 4000 --resume
 
 ----------------------------------------------------------------------
@@ -451,7 +451,7 @@ def main() -> None:
     parser.add_argument("--n-envs", type=int, default=None)
     parser.add_argument("--use-subproc", action="store_true", default=True,
                         help="use SubprocVecEnv when n_envs > 1 (default on)")
-    parser.add_argument("--output-dir", type=Path, default=Path("./output/mvp2"))
+    parser.add_argument("--output-dir", type=Path, default=Path("./output/training"))
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--resume", action="store_true", default=False,
                         help="前回の学習を --output-dir から引き継いで続きから学習する。"

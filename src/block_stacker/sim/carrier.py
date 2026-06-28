@@ -21,7 +21,7 @@ transport behave naturally (and can knock the carrier off-track).
     - 軌道は 3 段階: (1) 上昇 (2) 水平移動 (3) 降下。
       水平レーンの高さは plan_three_phase_lift_height でタワー高に応じ動的決定。
     - trajectory は yield ベース → 1 ステップ 1 ウェイポイントで物理ループに
-      同期させる前提（mvp3/ai_server の CarrierDriver.tick と対応）。
+      同期させる前提（serving/ai_server の CarrierDriver.tick と対応）。
 
 レビューで見る観点:
     - lift_height が大きすぎるとブロックが天井（z_max）にぶつかる可能性。

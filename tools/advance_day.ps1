@@ -20,9 +20,9 @@
 #   -DryRun                : 表示のみ。ai_server 起動も played/ 移動もしない。
 
 param(
-    [string]$FreshDir         = "output\mvp2\fresh",
-    [string]$PlayedDir        = "output\mvp2\played",
-    [string]$StateFile        = "output\mvp2\advance_state.json",
+    [string]$FreshDir         = "output\training\fresh",
+    [string]$PlayedDir        = "output\training\played",
+    [string]$StateFile        = "output\training\advance_state.json",
     [string]$Python           = ".venv\Scripts\python.exe",
     [string]$AiHost           = "127.0.0.1",
     [int]$AiPort              = 8765,

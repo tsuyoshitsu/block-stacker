@@ -1,6 +1,6 @@
-"""MVP 3.5: AI-driven streaming server.
+"""AI-driven streaming server.
 
-Loads a trained MVP 2 SAC model and runs it as a slow ambient demo:
+Loads a trained SAC model (from output/training/) and runs it as a slow ambient demo:
 
     1. observe (Dict obs identical to training)
     2. predict an action
@@ -16,16 +16,16 @@ contributes only:
     - block spawning per curriculum stage（既定は最終ステージ＝全形状。--stage で変更可）
 
 Run:
-    .venv\Scripts\python.exe -m block_stacker.serving.ai_server
-    .venv\Scripts\python.exe -m block_stacker.serving.ai_server --port 8765 \
-        --model output/mvp2/fresh/sac_3990_steps.zip --thinking-pause 1.0
+    .venv/Scripts/python.exe -m block_stacker.serving.ai_server
+    .venv/Scripts/python.exe -m block_stacker.serving.ai_server --port 8765 ^
+        --model output/training/fresh/sac_3990_steps.zip --thinking-pause 1.0
 
 ----------------------------------------------------------------------
 レビューノート（日本語）
 ----------------------------------------------------------------------
 目的:
-    学習済み SAC（MVP 2）モデルをロードし、AI が積み木を積む様子を
-    リアルタイムで配信する。MVP 3 + 学習モデル統合の達成版。
+    学習済み SAC モデルをロードし、AI が積み木を積む様子を
+    リアルタイムで配信する。
 
     短期記憶対応:
     - 学習時に stm_length > 0 で訓練されたモデルは観測辞書に "recent_*" を要求する。
@@ -237,10 +237,10 @@ def _resolve_model_path(explicit: Path | None) -> Path:
     """
     if explicit is not None:
         return explicit
-    found = find_latest_checkpoint(Path("output/mvp2"))
+    found = find_latest_checkpoint(Path("output/training"))
     if found is not None:
         return found
-    return Path("output/mvp2/fresh/sac_latest.zip")
+    return Path("output/training/fresh/sac_latest.zip")
 
 
 # ----------------------------------------------------------- observation/util

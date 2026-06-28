@@ -9,7 +9,7 @@
 # 使い方:
 #   tools\local_loop.ps1                       # fresh/ を 60 秒ずつ1巡して終了
 #   tools\local_loop.ps1 -SwitchSeconds 30     # 30 秒ごとに切り替え
-#   tools\local_loop.ps1 -Dir output\mvp2\played  # played/ を指定
+#   tools\local_loop.ps1 -Dir output\training\played  # played/ を指定
 #
 # 終了: 最後のモデルの再生が終わると自動終了（Ctrl+C で途中中断も可）
 #
@@ -18,7 +18,7 @@
 #   -Dir <path>          : checkpoint ディレクトリ（既定 fresh/）
 
 param(
-    [string]$Dir            = "output\mvp2\fresh",
+    [string]$Dir            = "output\training\fresh",
     [int]$SwitchSeconds     = 60,
     [string]$Python         = ".venv\Scripts\python.exe",
     [string]$AiHost         = "127.0.0.1",

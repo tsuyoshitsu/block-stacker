@@ -7,12 +7,12 @@
 #   tools/demo_checkpoints.ps1                                     # 対話モード（一つ選んで再生）
 #   tools/demo_checkpoints.ps1 -Mode auto                          # 全 checkpoint を順番に再生
 #   tools/demo_checkpoints.ps1 -Mode auto -Seconds 60              # 各 60 秒ずつ
-#   tools/demo_checkpoints.ps1 -CheckpointsDir output\mvp2\fresh   # fresh/ を明示（既定）
-#   tools/demo_checkpoints.ps1 -CheckpointsDir output\mvp2\played  # played/ を再生
+#   tools/demo_checkpoints.ps1 -CheckpointsDir output\training\fresh   # fresh/ を明示（既定）
+#   tools/demo_checkpoints.ps1 -CheckpointsDir output\training\played  # played/ を再生
 #
 # 前提:
 #   - .venv が学習依存をインストール済み (pip install -e .)
-#   - learner が output/mvp2/fresh/sac_<steps>_steps.zip を生成済み
+#   - learner が output/training/fresh/sac_<steps>_steps.zip を生成済み
 #   - Godot エディタは別途起動して main.tscn を再生 (またはスクリプトが起動)
 #
 # 設計上のポイント（日本語レビューノート）:
@@ -26,7 +26,7 @@
 #   - PowerShell 起動・停止のタイミングを揃えるため、Start-Sleep で待つ
 
 param(
-    [string]$CheckpointsDir = "output\mvp2\fresh",
+    [string]$CheckpointsDir = "output\training\fresh",
     [int]$Seconds = 60,
     [ValidateSet("interactive", "auto")]
     [string]$Mode = "interactive",

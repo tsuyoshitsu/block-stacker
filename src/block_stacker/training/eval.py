@@ -49,7 +49,7 @@ def main() -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
 
     if args.model is None:
-        args.model = find_latest_checkpoint(Path("output/mvp2"))
+        args.model = find_latest_checkpoint(Path("output/training"))
         if args.model is None:
             raise SystemExit(
                 "fresh/ / played/ に checkpoint が見つかりません。学習後に再実行してください。"
