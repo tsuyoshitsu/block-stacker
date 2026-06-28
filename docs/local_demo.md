@@ -11,7 +11,7 @@
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ 1. 学習を回す                                            │
-│    python -m block_stacker.mvp2.train --total-timesteps 4000  │
+│    python -m block_stacker.training.train --total-timesteps 4000  │
 │    → output/mvp2/fresh/ に sac_20260627-143022_800_steps.zip...  │
 └──────────────────────────────────────────────────────────┘
                             │
@@ -71,13 +71,13 @@
 
 ```powershell
 # 全ステージ（既定。フラグ不要でカリキュラム ON）
-.venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000
+.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000
 
 # まず Stage 1→2 だけ試す
-.venv\Scripts\python.exe -m block_stacker.mvp2.train --max-stage 2 --n-envs 6 --total-timesteps 4000
+.venv\Scripts\python.exe -m block_stacker.training.train --max-stage 2 --n-envs 6 --total-timesteps 4000
 
 # 単一ステージだけ素早く確認したいとき（Stage 1 のみ）
-.venv\Scripts\python.exe -m block_stacker.mvp2.train --no-curriculum --n-envs 6 --total-timesteps 4000
+.venv\Scripts\python.exe -m block_stacker.training.train --no-curriculum --n-envs 6 --total-timesteps 4000
 ```
 > 新人 AI は短い予算だと卒業条件に届かず「卒業せず中断」になる。進行そのものを素早く見たいだけなら
 > `configs/training.yaml` の `graduation.threshold` を下げる／`ratio` を下げる（目標を低く）。
@@ -99,7 +99,7 @@
 
 ```powershell
 # 初回学習を済ませてから続きを学習（find_latest_checkpoint で最新 run の最大ステップ checkpoint を自動選択）
-.venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000 --resume
+.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000 --resume
 ```
 
 - **経過日数は自動算出**（`resume_state.json` の `timestamp` から現在時刻との差を計算）。
@@ -273,7 +273,7 @@ tools\local_loop.ps1 -Dir output\mvp2\played
 | `No Python at '...uv\python\...'` | `.venv` が壊れている（uv 管理 python に到達不能）。素の python.org 3.12 で作り直す（上の「環境メモ」）。`uv sync` で直そうとしない |
 | `WinError 1114`（`c10.dll`） | Anaconda 由来の venv で torch が落ちている。素の python.org 3.12 で作り直す |
 | `numpy.core.multiarray failed to import` | pybullet が numpy 1 ABI の配布ホイール。`pip install --no-binary pybullet --force-reinstall pybullet==3.2.7`（要 MSVC）か、numpy2 対応ビルドの `.pyd` を使う |
-| `checkpoints ディレクトリが見つかりません` | 先に `mvp2.train` を実行して学習を回す |
+| `checkpoints ディレクトリが見つかりません` | 先に `training.train` を実行して学習を回す |
 | `ai_server が起動直後に終了` | モデルファイル破損 / 観測形状ミスマッチ。`configs/training.yaml` を変えていないか確認 |
 | Godot で AI が動かない | サーバ側ターミナルで "client connected" ログが出ているか |
 | 切替時に AI 表示が一瞬止まる | 正常。WsClient が 2 秒以内に再接続するのを待つだけ |
@@ -301,7 +301,7 @@ i7-10750H (6 物理コア) 想定:
 ```powershell
 $ACCOUNT = aws sts get-caller-identity --query Account --output text
 # fresh/ の最大ステップ checkpoint を最新モデルとして S3 にアップ
-$model = & .venv\Scripts\python.exe -c "from block_stacker.mvp2.checkpoint import find_latest_checkpoint; from pathlib import Path; p = find_latest_checkpoint(Path('output/mvp2')); print(p)"
+$model = & .venv\Scripts\python.exe -c "from block_stacker.training.checkpoint import find_latest_checkpoint; from pathlib import Path; p = find_latest_checkpoint(Path('output/mvp2')); print(p)"
 aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 ```
 
@@ -333,7 +333,7 @@ fresh/ が空になったら → played/ の最大ステップモデルを繰り
 
 ```powershell
 # 1. 学習を実行（total_timesteps を 5 等分した地点で fresh/ に checkpoint が生成される）
-.venv\Scripts\python.exe -m block_stacker.mvp2.train --n-envs 6 --total-timesteps 4000
+.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000
 
 # 2. day 1 から配信開始（fresh/ の最古モデルで起動）
 tools\advance_day.ps1
@@ -367,7 +367,7 @@ tools\advance_day.ps1 -DryRun
 tools\advance_day.ps1 -DurationSeconds 7200
 
 # ai_server を直接起動するときも --duration が使える
-.venv\Scripts\python.exe -m block_stacker.mvp3.ai_server --duration 300
+.venv\Scripts\python.exe -m block_stacker.serving.ai_server --duration 300
 
 # advance_state.json を確認（今日のモデルと PID）
 Get-Content output\mvp2\advance_state.json
@@ -398,8 +398,8 @@ output/
 
 ## 関連
 
-- 学習スクリプト: [`src/block_stacker/mvp2/train.py`](../src/block_stacker/mvp2/train.py)
-- 推論サーバ: [`src/block_stacker/mvp3/ai_server.py`](../src/block_stacker/mvp3/ai_server.py)
+- 学習スクリプト: [`src/block_stacker/training/train.py`](../src/block_stacker/training/train.py)
+- 推論サーバ: [`src/block_stacker/serving/ai_server.py`](../src/block_stacker/serving/ai_server.py)
 - ヘルパー: [`tools/demo_checkpoints.ps1`](../tools/demo_checkpoints.ps1)、[`tools/local_loop.ps1`](../tools/local_loop.ps1)、[`tools/advance_day.ps1`](../tools/advance_day.ps1)
 - **ログ解読マニュアル**: [`docs/log_reading.md`](log_reading.md)（学習/推論ログの読み方）
 - 設計書: [`docs/block_stacker_design.md`](block_stacker_design.md)（3 層記憶アーキテクチャ §3）

@@ -395,7 +395,7 @@ all_placed = 散布0 を達成                     # 即卒業のトリガー（
 
 #### 実装状況（オートカリキュラム）
 
-**実装済み**（[`mvp2/train.py`](src/block_stacker/mvp2/train.py) + [`mvp2/curriculum.py`](src/block_stacker/mvp2/curriculum.py)）。
+**実装済み**（[`training/train.py`](src/block_stacker/training/train.py) + [`training/curriculum.py`](src/block_stacker/training/curriculum.py)）。
 
 - **既定で** Stage 1→N を自動進行（`--no-curriculum` で Stage 1 のみに切替）。
 - `GraduationCallback` が成功率 ≥ `threshold` を満たすと `learn()` を早期終了し次ステージへ。
@@ -408,7 +408,7 @@ all_placed = 散布0 を達成                     # 即卒業のトリガー（
   `GraduationCallback` が `learn()` を早期終了させるため最終ステージ卒業時に checkpoint が
   欠落することを防ぐ。ループ後に `model.num_timesteps < total_timesteps` なら最終ステージ環境を
   再構築し `reset_num_timesteps=False` で続きを走らせる（checkpoint が `total_timesteps` まで埋まる）。
-- **デモ配信（[`mvp3/ai_server.py`](src/block_stacker/mvp3/ai_server.py)）は常に最終ステージ**
+- **デモ配信（[`serving/ai_server.py`](src/block_stacker/serving/ai_server.py)）は常に最終ステージ**
   （全形状）でモデルを動かす。既定モデルは `find_latest_checkpoint`（ソートキー `(run_ts, steps)` 降順の最大値）で自動選択。
 
 ### Stage 情報の取り扱い
@@ -896,8 +896,8 @@ ASG + Mixed Instances Policy + capacity-optimized で自動再起動。
 
 | Image | Dockerfile | ベース | 用途 |
 |------|-----------|--------|------|
-| `block-stacker/demo` | `Dockerfile` | python:3.11-slim | デモ EC2 (`mvp3.ai_server`) |
-| `block-stacker/learner` | `Dockerfile.learner` | python:3.12-slim | 学習 EC2 (`mvp2.train`) |
+| `block-stacker/demo` | `Dockerfile` | python:3.11-slim | デモ EC2 (`serving.ai_server`) |
+| `block-stacker/learner` | `Dockerfile.learner` | python:3.12-slim | 学習 EC2 (`training.train`) |
 
 両イメージとも **CPU torch wheel** を使用（GPU 不要）。配信 EC2 は Caddy をネイティブ実行（コンテナ化なし）。
 
