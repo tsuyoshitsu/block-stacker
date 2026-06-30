@@ -9,7 +9,7 @@ gravity: [0.0, 0.0, -9.81]
 
 friction:
   block_to_block: 0.45           # 0.6 → 0.45 (×0.75): ブロック間固着緩和
-  block_to_ground: 0.8
+  block_to_ground: 0.5           # 0.8 → 0.5: ブロックと地面の摩擦を下げて滑りやすく
   block_to_wall: 0.4
   rolling_friction: 0.001
   spinning_friction: 0.001
