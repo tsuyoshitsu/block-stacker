@@ -1092,6 +1092,21 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 
 → **「ローカルで仕込んだモデル」をクラウドで配信**、というのが基本パターン。
 
+### G.7 ライブ配信モード（配信 + 継続学習の融合）
+
+デモ EC2 上で `live_server.py` を使うと、**配信しながらバックグラウンドで学習を継続**できます。
+`ai_server.py`（推論のみ）の代わりに使用します。
+
+```powershell
+.venv\Scripts\python.exe -m block_stacker.serving.live_server `
+    --snapshot-dir output/training `
+    --n-envs 2 `
+    --duration 28800
+```
+
+起動前に **Stage 4–5 到達済みプリセット**（`output/training/fresh/` 配下の checkpoint）が必要です。
+プリセット生成手順・インスタンス別 `--n-envs` 推奨値・コスト試算は **[`docs/live_mode.md`](live_mode.md)** を参照してください。
+
 ---
 
 ## 完了チェックリスト

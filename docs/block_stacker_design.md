@@ -437,6 +437,8 @@ all_placed = 散布0 を達成                     # 即卒業のトリガー（
   **スレッド安全性**: `WeightSyncer.push()` は training thread 側でロックを取ってポインタを書き換えるだけ（ns 単位）。`pull()` は 240Hz の physics loop 内でロック取得 → ポインタ swap → ロック解放 → `load_state_dict()`（ロック外）。
   物理ループが学習スレッドのロック待ちでブロックされる時間は実質ゼロ。
 
+  **運用手順（プリセット生成 / n_envs 最適化 / Spot 中断対策）は [`docs/live_mode.md`](live_mode.md) を参照。**
+
   **PyBullet スレッド安全性**: training 用 `SubprocVecEnv` は独立プロセスで PyBullet を保持するため、配信用の asyncio PyBullet（メインスレッド）とは完全に分離される。
 
 ### Stage 情報の取り扱い
