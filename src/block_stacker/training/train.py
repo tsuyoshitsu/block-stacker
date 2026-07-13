@@ -152,20 +152,18 @@ def _retire_fresh_checkpoints(fresh_dir: Path, played_dir: Path) -> None:
     fresh_dir.mkdir(parents=True, exist_ok=True)
 
 
-def _compute_save_freq(total_timesteps: int, splits: int, n_envs: int) -> int:
+def _compute_save_freq(checkpoint_every: int, n_envs: int) -> int:
     """CheckpointCallback の save_freq（n_calls 基準）を算出して返す。
 
-    total_timesteps を splits 等分した地点で checkpoint を保存する間隔。
-    SB3 の n_calls は 1 本の env ストリームあたりのステップ数のため n_envs で除算する。
+    checkpoint_every を n_envs で割り、1 本の env ストリームあたりの呼び出し間隔に変換する。
+    total_timesteps に依存しないため --target-stage による早期終了時も適切な間隔で保存される。
 
-    例: total_timesteps=4000, splits=5, n_envs=6
-      save_freq = 4000 // 5 // 6 = 133
-      実際の保存ステップ: 133*6=798, 266*6=1596, ... ≈ 20/40/60/80/100 %
+    例: checkpoint_every=50000, n_envs=8 → save_freq=6250 calls ≈ 50k 実ステップごとに保存。
     """
-    freq = max(total_timesteps // splits // max(1, n_envs), 1)
+    freq = max(checkpoint_every // max(1, n_envs), 1)
     LOG.info(
-        "Checkpoint: splits=%d, save_freq=%d calls (≈%d total steps per split, n_envs=%d)",
-        splits, freq, freq * n_envs, n_envs,
+        "Checkpoint: every=%d steps → save_freq=%d calls (n_envs=%d)",
+        checkpoint_every, freq, n_envs,
     )
     return freq
 
@@ -265,6 +263,7 @@ def _run_stage_loop(
     seed: int,
     world_cfg: WorldConfig,
     output_dir: Path,
+    target_stage: int | None = None,
 ) -> tuple[SAC, list[int], int | None]:
     """ステージを順に学習するカリキュラムメインループ。
 
@@ -348,6 +347,9 @@ def _run_stage_loop(
                 LOG.info("Stage %s graduated (success_rate=%.2f).",
                          stage_id, grad_cb.success_rate)
                 completed_stages.append(stage_id)
+                if target_stage is not None and stage_id == target_stage:
+                    LOG.info("--target-stage %s 到達: ステージループを終了します。", target_stage)
+                    break
             else:
                 LOG.warning(
                     "Stage %s did NOT graduate (success_rate=%.2f < %.2f). "
@@ -444,7 +446,7 @@ def _save_end_state(
     )
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="block_stacker.training.train")
     parser.add_argument("--configs-dir", type=Path, default=default_configs_dir())
     parser.add_argument("--total-timesteps", type=int, default=None)
@@ -463,7 +465,20 @@ def main() -> None:
                         help="--curriculum 時の開始ステージ番号（1始まり）")
     parser.add_argument("--max-stage", type=int, default=None,
                         help="最終ステージ番号（既定=全ステージ）")
-    args = parser.parse_args()
+    parser.add_argument(
+        "--target-stage", type=int, default=4,
+        help=(
+            "このステージを卒業した時点で学習を終了しプリセットを保存（既定 4）。"
+            "全ステージ完走は --target-stage 5（または最終 id）。"
+            "budget 打ち切りまで走り切る場合は --target-stage 9999 等を指定。"
+            "--no-curriculum との併用時は無視される。"
+        ),
+    )
+    return parser
+
+
+def main() -> None:
+    args = _build_parser().parse_args()
 
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
     # 同一 run の全 checkpoint が共有するタイムスタンプ。ファイル名の先頭に埋め込む。
@@ -492,17 +507,35 @@ def main() -> None:
     n_envs = args.n_envs or sac_cfg.get("n_envs", 1)
     stm_length = int(stm_cfg.get("length", 0)) if stm_cfg.get("enabled", False) else 0
 
+    # --target-stage は curriculum ON のときのみ有効。OFF なら無視してログ警告。
+    effective_target: int | None = None
+    if args.curriculum:
+        effective_target = args.target_stage
+    elif args.target_stage != 4:  # ユーザーが明示的に指定した場合のみ警告
+        LOG.warning(
+            "--target-stage=%d が指定されていますが --no-curriculum のため無視されます。",
+            args.target_stage,
+        )
+
     # 実行するステージ列を決める。--curriculum 無指定なら従来通り Stage 1 のみ（後方互換）。
     if args.curriculum:
         start_idx = max(1, args.start_stage) - 1
+        # --target-stage が有効な場合、それより先のステージは学習しない（実行コスト削減）。
+        effective_max = args.max_stage
+        if effective_target is not None:
+            effective_max = (
+                effective_target if effective_max is None
+                else min(effective_max, effective_target)
+            )
         end_idx = (
-            len(all_stages) if args.max_stage is None
-            else min(args.max_stage, len(all_stages))
+            len(all_stages) if effective_max is None
+            else min(effective_max, len(all_stages))
         )
         run_stages = all_stages[start_idx:end_idx]
         if not run_stages:
             raise SystemExit(
-                f"no stages selected: start={args.start_stage}, max={args.max_stage}"
+                f"no stages selected: start={args.start_stage}, "
+                f"max={args.max_stage}, target={args.target_stage}"
             )
     else:
         run_stages = [all_stages[0]]
@@ -547,8 +580,8 @@ def main() -> None:
             "height_max_factor": float(height_cfg.get("max_factor", 3.0)),
         }
 
-    splits = int(sac_cfg.get("checkpoint_splits", 5))
-    save_freq = _compute_save_freq(total_timesteps, splits, n_envs)
+    checkpoint_every = int(sac_cfg.get("checkpoint_every", 50000))
+    save_freq = _compute_save_freq(checkpoint_every, n_envs)
 
     def build_vec_env(stage: dict[str, Any]) -> DummyVecEnv | SubprocVecEnv:
         factory = make_factory(
@@ -574,14 +607,14 @@ def main() -> None:
     # チェックポイントは全ステージ通して「ステップ数ごと」に連続記録する（ステージ別にしない）。
     # コールバックを1つ使い回すことで n_calls が連続し、cadence がステージ跨ぎで途切れない。
     # ファイル名: fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip
-    #   → 同一 run の 5 本は同じ run_ts プレフィックスを共有し、played/ 蓄積時も衝突しない。
+    #   → 同一 run の checkpoint は同じ run_ts プレフィックスを共有し、played/ 蓄積時も衝突しない。
     #   → advance_day.ps1 / local_loop.ps1 は (run_ts, steps) 昇順で再生。
     checkpoint_cb = CheckpointCallback(
         save_freq=save_freq,
         save_path=str(args.output_dir / "fresh"),
         name_prefix=f"sac_{run_ts}",
     )
-    LOG.info("Checkpoint prefix: sac_%s (same across all %d splits)", run_ts, splits)
+    LOG.info("Checkpoint prefix: sac_%s, interval=%d steps", run_ts, checkpoint_every)
 
     completed_stages: list[int] = []
     model: SAC | None = None
@@ -608,19 +641,42 @@ def main() -> None:
         seed=args.seed,
         world_cfg=world_cfg,
         output_dir=args.output_dir,
+        target_stage=effective_target,
     )
 
-    cont_stage_id = _run_budget_continuation(
-        model=model,
-        run_stages=run_stages,
-        build_vec_env=build_vec_env,
-        total_timesteps=total_timesteps,
-        sac_cfg=sac_cfg,
-        grad_window=grad_window,
-        checkpoint_cb=checkpoint_cb,
+    # --target-stage 到達チェック
+    target_reached = (
+        effective_target is not None and effective_target in completed_stages
     )
-    if cont_stage_id is not None:
-        last_active_stage_id = cont_stage_id
+
+    if target_reached:
+        # GraduationCallback が learn() を早期終了させるため、卒業タイミングが
+        # CheckpointCallback の周期と合致しないことがある。明示的に保存して補完する。
+        preset_name = f"sac_{run_ts}_{model.num_timesteps}_steps"
+        preset_path = args.output_dir / "fresh" / preset_name
+        model.save(str(preset_path))
+        LOG.info(
+            "--target-stage %d 到達: プリセット保存 → %s.zip (%d steps)",
+            effective_target, preset_path, model.num_timesteps,
+        )
+    else:
+        if effective_target is not None:
+            LOG.warning(
+                "--target-stage %d に到達しませんでした（グローバル予算 %d 消化）。"
+                "プリセット保存はスキップ（fresh/ の最大ステップ checkpoint が最終モデル）。",
+                effective_target, total_timesteps,
+            )
+        cont_stage_id = _run_budget_continuation(
+            model=model,
+            run_stages=run_stages,
+            build_vec_env=build_vec_env,
+            total_timesteps=total_timesteps,
+            sac_cfg=sac_cfg,
+            grad_window=grad_window,
+            checkpoint_cb=checkpoint_cb,
+        )
+        if cont_stage_id is not None:
+            last_active_stage_id = cont_stage_id
 
     LOG.info("学習完了: 最終モデル = fresh/ の最大ステップ checkpoint (sac_final.zip は廃止)")
     _save_end_state(

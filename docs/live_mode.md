@@ -23,27 +23,48 @@ checkpoint を用意してから live_server を起動してください。
 
 ### 手順: train.py でプリセットを生成する
 
+`--target-stage 4`（既定値）を指定すると、Stage 4 を卒業した時点で自動的に学習終了＋プリセット保存されます。
+
 ```powershell
-# c6a.4xlarge (16vCPU, AMD) での推奨コマンド（約 1〜2h で Stage 5 に到達）
+# ---- Stage 4 で打ち切り（既定動作）----
+# c6a.4xlarge (16vCPU, AMD) 推奨（約 1〜2h で Stage 4 に到達）
 .venv\Scripts\python.exe -m block_stacker.training.train `
     --n-envs 8 `
-    --total-timesteps 500000
+    --total-timesteps 2000000
+# total-timesteps は「Stage 4 を卒業できなかった場合の安全上限」。
+# 通常は Stage 4 卒業時に自動終了する。
 
-# 生成物:
-#   output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip  ← NN 重み
+# ---- Stage 5（全形状）まで走らせたい場合 ----
+.venv\Scripts\python.exe -m block_stacker.training.train `
+    --n-envs 8 `
+    --total-timesteps 5000000 `
+    --target-stage 5
+
+# 生成物（いずれも同じ場所）:
+#   output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip  ← NN 重み（卒業時に追加保存）
 #   output/training/replay_buffer.pkl                               ← 長期記憶
 #   output/training/resume_state.json                               ← カリキュラム進捗
 ```
 
-カリキュラムが Stage 4 または 5 まで進んだことを `resume_state.json` の
-`next_stage_id` で確認してください（4 以上であれば live_server の起動が可能）。
+`--target-stage 4`（既定）では Stage 4 卒業直後に `fresh/` へプリセットが保存され、
+`resume_state.json` の `next_stage_id` が `4` になります。
 
 ```json
-// resume_state.json 例（Stage 5 到達済み）
+// resume_state.json 例（Stage 4 卒業で打ち切った場合）
+{
+  "num_timesteps": 340000,
+  "next_stage_id": 4,
+  "completed_stages": [1, 2, 3, 4],
+  "timestamp": "2026-07-13T14:00:00"
+}
+```
+
+```json
+// resume_state.json 例（--target-stage 5 で Stage 5 到達済み）
 {
   "num_timesteps": 498000,
   "next_stage_id": 5,
-  "completed_stages": [1, 2, 3, 4],
+  "completed_stages": [1, 2, 3, 4, 5],
   "timestamp": "2026-07-13T14:00:00"
 }
 ```

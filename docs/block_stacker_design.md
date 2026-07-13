@@ -401,13 +401,12 @@ all_placed = 散布0 を達成                     # 即卒業のトリガー（
 - `GraduationCallback` が成功率 ≥ `threshold` を満たすと `learn()` を早期終了し次ステージへ。
 - 観測空間は全ステージ共通（`max_blocks=8` 等で固定）なので、**同じ NN・記憶バッファを
   `model.set_env()` で引き継いだまま** env だけ差し替える。タイムステップ計数・TensorBoard も連続。
-- 保存: `fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` として `checkpoint_splits`（既定 5）等分地点で保存。同一 run の 5 本は `run_ts`（`YYYYMMDD-HHMMSS`）を共有。`sac_final.zip` は廃止。
-- `--total-timesteps` は**全ステージ合計の上限（グローバル予算）**。総手数は必ずこの値以下になり、
-  早く卒業した残り手数は次ステージへ回る。使い切ったら（卒業しきれず）中断。
-- **最終ステージ卒業後も予算が残っていれば継続**（`train.py` の post-loop ブロック）:
-  `GraduationCallback` が `learn()` を早期終了させるため最終ステージ卒業時に checkpoint が
-  欠落することを防ぐ。ループ後に `model.num_timesteps < total_timesteps` なら最終ステージ環境を
-  再構築し `reset_num_timesteps=False` で続きを走らせる（checkpoint が `total_timesteps` まで埋まる）。
+- 保存: `fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` として `checkpoint_every`（既定 50000 steps）間隔で定期保存。
+  `--target-stage` 卒業時には追加で明示的 checkpoint を保存（周期と合致しない場合の補完）。`sac_final.zip` は廃止。
+- `--total-timesteps` は**安全上限（タイムアウト）**。`--target-stage`（既定 4）が卒業条件として機能し、
+  指定ステージ卒業時点で学習終了・プリセット保存。`--target-stage 9999` で旧来の budget 完走動作に戻せる。
+- **`--target-stage` 未到達で budget 枯渇した場合**: 最終ステージ卒業後に budget が残っていれば
+  `StageMonitorCallback` で継続学習（`_run_budget_continuation`）。卒業で打ち切った場合はスキップ。
 - **デモ配信（[`serving/ai_server.py`](src/block_stacker/serving/ai_server.py)）は常に最終ステージ**
   （全形状）でモデルを動かす。既定モデルは `find_latest_checkpoint`（ソートキー `(run_ts, steps)` 降順の最大値）で自動選択。
 - **ライブ配信モード（[`serving/live_server.py`](src/block_stacker/serving/live_server.py)）**:
@@ -752,7 +751,7 @@ curriculum:
       ...
 
 sac:
-  total_timesteps: 4000         # 週次配信標準（checkpoint_splits=5 で 800 刻み 5 本）
+  total_timesteps: 4000         # 安全上限（--target-stage 未到達時のタイムアウト）
   n_envs: 8                     # c6a.4xlarge 物理コア飽和
   buffer_size: 50000
   learning_starts: 200
@@ -765,7 +764,7 @@ sac:
   ent_coef: "auto"
   target_update_interval: 1
   log_interval: 4
-  checkpoint_splits: 5          # total_timesteps を等分した地点でcheckpointを保存
+  checkpoint_every: 50000       # 絶対ステップ間隔でcheckpointを保存（total_timesteps 非依存）
   features_dim: 128
 
 # 重みつきリプレイバッファの設定

@@ -1030,8 +1030,8 @@ memory_system:
 ```
 
 - `--n-envs 6`: 物理コア数に合わせる（クラウドは 8、ローカルは 4〜6）
-- `--total-timesteps 4000`: 週次配信標準。約 1 分で 5 本の checkpoint（20/40/60/80/100% 地点）
-- `output/training/fresh/sac_<N>_steps.zip` が `total_timesteps` の等分地点（`checkpoint_splits=5`）で保存（ステージ番号はファイル名に含まれない。`sac_final.zip` は廃止）
+- `--total-timesteps 4000`: 週次配信標準（安全上限。実際は `--target-stage 4` 卒業で早期終了）
+- `output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` が `checkpoint_every`（既定 50000 steps）間隔で保存（ステージ番号はファイル名に含まれない。`sac_final.zip` は廃止）
 
 ### G.2 TensorBoard で学習曲線を見る（別ターミナル）
 

@@ -62,7 +62,7 @@ curriculum:
       h_low: 0.12
 
 sac:
-  total_timesteps: 4000          # 週次配信標準 (checkpoint_splits=5 で 800 刻み 5 本; 本格は 1M+ 推奨)
+  total_timesteps: 4000          # グローバル予算の安全上限（--target-stage 未到達時のタイムアウト; 本格は 1M+ 推奨）
   # c6a.4xlarge (AMD EPYC, 8 物理コア) の物理コア飽和点。
   # SAC は train_freq が低いほど on-step 学習が重く、CPU が物理 step より遅い場合は
   # n_envs を上げすぎても train が間に合わない。8 は安全側。
@@ -78,11 +78,10 @@ sac:
   ent_coef: "auto"               # 自動エントロピー温度調整（子供の "色々試す" を最大エントロピーで実現）
   target_update_interval: 1
   log_interval: 4
-  # checkpoint を total_timesteps の等分地点で保存する分割数。
-  # train.py が save_freq = total_timesteps // checkpoint_splits // n_envs を算出し
-  # SB3 CheckpointCallback に渡す。結果として 20/40/60/80/100% 地点に ~5 本生成され、
-  # 週次配信の step_01..05.zip と 1 対 1 で対応する。
-  checkpoint_splits: 5
+  # 絶対ステップ間隔で checkpoint を保存する。total_timesteps に依存しないため
+  # --target-stage による早期終了時でも適切な間隔で保存される。
+  # save_freq = checkpoint_every // n_envs（n_calls 基準）で算出する。
+  checkpoint_every: 50000
   features_dim: 128              # MVP 2: HybridFeatureExtractor output width
 
 # 重みつき記憶バッファ + 短期記憶の設定。子供っぽい記憶ダイナミクスを構成する。

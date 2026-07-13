@@ -85,9 +85,9 @@
 > でも上書きできる（env var > training.yaml > 既定）。本番（AWS の learner）も既定でカリキュラム ON。
 
 学習中：
-- `output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` が **`total_timesteps` の 20/40/60/80/100% 地点**で保存される（5本固定）。
-  先頭の日時（`run_ts`）は同一 run の 5 本で共通。ファイル名のステップ数は全ステージ通算の連続値。`configs/training.yaml` の `sac.checkpoint_splits`（既定 5）で分割数を変更可。
-  最後の checkpoint（100% 地点）が最終モデル相当（`sac_final.zip` は廃止）。
+- `output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` が **`checkpoint_every`（既定 50000）ステップ間隔**で定期保存される。
+  先頭の日時（`run_ts`）は同一 run の全 checkpoint で共通。ファイル名のステップ数は全ステージ通算の連続値。`configs/training.yaml` の `sac.checkpoint_every` で間隔変更可。
+  `--target-stage`（既定 4）卒業時に追加で明示的 checkpoint も保存（最終モデル相当、`sac_final.zip` は廃止）。
 - `output/training/tb/` に TensorBoard ログが書かれる
 - `output/training/replay_buffer.pkl`（長期記憶）と `output/training/resume_state.json` が**毎回**保存される（次回 `--resume` で利用）
 - **前回の学習の `fresh/` が残っている場合**: 学習開始時に自動で `played/` へ退避してから新しい checkpoint を `fresh/` に生成する
@@ -289,7 +289,7 @@ i7-10750H (6 物理コア) 想定:
 | 500,000 | 約 2 時間 | 5 個 | 各 60s で 5 分 |
 | 1,000,000 | 約 4 時間 | 5 個 | auto モード 30s で 2.5 分 |
 
-→ 週次配信は `4,000` が標準（checkpoint_splits=5 で 800 刻み 5 本）。本格学習は 500k+ 推奨。
+→ 週次配信は `4,000` が標準。本格学習（Stage 4 卒業プリセット生成）は `500k+` + `--target-stage 4` 推奨。
 
 ## クラウド学習との関係
 
