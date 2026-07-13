@@ -518,7 +518,7 @@ async def main_async(args: argparse.Namespace) -> None:
 # ----------------------------------------------------------------- entry point
 
 
-def main() -> None:
+def _build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="block_stacker.serving.live_server",
         description="ライブ配信モード: 1x配信 + バックグラウンド学習の融合サーバ",
@@ -551,11 +551,14 @@ def main() -> None:
                         help="バックグラウンド学習の並列環境数 (0 = 配信のみ)")
     parser.add_argument("--sync-every", type=int, default=500,
                         help="学習→配信モデルへの重み同期間隔（学習ステップ単位）")
-    # --- resume (Step C+ で有効) ---
+    # --- resume ---
     parser.add_argument("--no-resume", action="store_true", default=False,
                         help="スナップショットを無視して新規学習（初回起動専用）")
+    return parser
 
-    args = parser.parse_args()
+
+def main() -> None:
+    args = _build_parser().parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
     try:
         asyncio.run(main_async(args))

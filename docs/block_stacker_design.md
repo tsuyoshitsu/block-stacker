@@ -410,6 +410,34 @@ all_placed = 散布0 を達成                     # 即卒業のトリガー（
   再構築し `reset_num_timesteps=False` で続きを走らせる（checkpoint が `total_timesteps` まで埋まる）。
 - **デモ配信（[`serving/ai_server.py`](src/block_stacker/serving/ai_server.py)）は常に最終ステージ**
   （全形状）でモデルを動かす。既定モデルは `find_latest_checkpoint`（ソートキー `(run_ts, steps)` 降順の最大値）で自動選択。
+- **ライブ配信モード（[`serving/live_server.py`](src/block_stacker/serving/live_server.py)）**:
+  学習（train_model）と配信（serve_model）を 1 プロセスに融合した形式。
+  常に最終ステージ（Stage 5）で配信しながら、バックグラウンドスレッドで SAC を継続訓練する。
+
+  ```
+  .venv\Scripts\python.exe -m block_stacker.serving.live_server \
+      --snapshot-dir output/training --duration 28800 --n-envs 4
+  ```
+
+  | コンポーネント | スレッド | 役割 |
+  |---|---|---|
+  | `serve_model` | asyncio | 現在の最良重みで `predict()` → WebSocket 配信 |
+  | `train_model` | daemon スレッド | `SAC.learn()` でバックグラウンド訓練 |
+  | `WeightSyncer` | スレッド境界 | Lock + `.clone()` で `--sync-every` 毎に重みをコピー |
+  | `LiveCallback` | daemon スレッド | `stop_event` 監視 + 重みプッシュ |
+
+  **セッションライフサイクル（既定 8h）**:
+  1. `--snapshot-dir` から NN 重み + replay_buffer.pkl + resume_state.json を復元。
+  2. replay_buffer には経過日数 × steps_per_day 分の時間減衰を適用（`_apply_live_resume`）。
+  3. 配信と訓練を並走。`--sync-every` ステップごとに train_model → serve_model へ重みをコピー。
+  4. `--duration` 経過後: `stop_event` → training thread join → `_save_live_snapshot()` → 終了。
+
+  `_save_live_snapshot()` は `fresh/sac_<run_ts>_<steps>_steps.zip` + `replay_buffer.pkl` + `resume_state.json` を書き出す。次回起動時に `--no-resume` なしで自動的に引き継がれる。
+
+  **スレッド安全性**: `WeightSyncer.push()` は training thread 側でロックを取ってポインタを書き換えるだけ（ns 単位）。`pull()` は 240Hz の physics loop 内でロック取得 → ポインタ swap → ロック解放 → `load_state_dict()`（ロック外）。
+  物理ループが学習スレッドのロック待ちでブロックされる時間は実質ゼロ。
+
+  **PyBullet スレッド安全性**: training 用 `SubprocVecEnv` は独立プロセスで PyBullet を保持するため、配信用の asyncio PyBullet（メインスレッド）とは完全に分離される。
 
 ### Stage 情報の取り扱い
 

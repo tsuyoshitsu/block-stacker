@@ -13,6 +13,7 @@ from block_stacker.serving.live_server import (
     LiveCallback,
     WeightSyncer,
     _apply_live_resume,
+    _build_parser,
     _resolve_model,
     _save_live_snapshot,
     _self_stop_instance,
@@ -273,3 +274,44 @@ class TestSaveLiveSnapshot:
 
     def test_self_stop_is_callable(self) -> None:
         _self_stop_instance("test-reason")  # just verifies it doesn't raise
+
+
+# ----------------------------------------------------------------- Step E: argparse smoke
+
+
+class TestArgParser:
+    def _parse(self, extra: list[str] | None = None) -> object:
+        args_list = extra or []
+        return _build_parser().parse_args(args_list)
+
+    def test_default_duration(self) -> None:
+        args = self._parse()
+        assert args.duration == 28800.0
+
+    def test_default_n_envs(self) -> None:
+        args = self._parse()
+        assert args.n_envs == 4
+
+    def test_default_sync_every(self) -> None:
+        args = self._parse()
+        assert args.sync_every == 500
+
+    def test_default_no_resume_is_false(self) -> None:
+        args = self._parse()
+        assert args.no_resume is False
+
+    def test_no_resume_flag(self) -> None:
+        args = self._parse(["--no-resume"])
+        assert args.no_resume is True
+
+    def test_duration_zero_means_unlimited(self) -> None:
+        args = self._parse(["--duration", "0"])
+        assert args.duration == 0.0
+
+    def test_n_envs_zero_disables_training(self) -> None:
+        args = self._parse(["--n-envs", "0"])
+        assert args.n_envs == 0
+
+    def test_model_default_is_none(self) -> None:
+        args = self._parse()
+        assert args.model is None
