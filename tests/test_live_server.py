@@ -1,13 +1,20 @@
-"""Smoke tests for serving/live_server.py (Step A + B, no long-running processes)."""
+"""Smoke tests for serving/live_server.py (Steps A–C, no long-running processes)."""
 from __future__ import annotations
 
+import json
 import threading
 from pathlib import Path
+from unittest.mock import MagicMock
 
 import pytest
 import torch
 
-from block_stacker.serving.live_server import LiveCallback, WeightSyncer, _resolve_model
+from block_stacker.serving.live_server import (
+    LiveCallback,
+    WeightSyncer,
+    _apply_live_resume,
+    _resolve_model,
+)
 
 
 # ----------------------------------------------------------------- helpers
@@ -170,3 +177,54 @@ class TestLiveCallback:
         for _ in range(6):
             cb._on_step()
         assert syncer.sync_count == 2
+
+
+# ----------------------------------------------------------------- _apply_live_resume
+
+
+class TestApplyLiveResume:
+    def _fake_model(self, is_weighted: bool = False) -> MagicMock:
+        model = MagicMock()
+        if is_weighted:
+            from block_stacker.policy.weighted_replay_buffer import WeightedReplayBuffer
+            buf = MagicMock(spec=WeightedReplayBuffer)
+            buf.global_step = 0
+            buf.decay_rate = 0.9999
+        else:
+            buf = MagicMock()
+        model.replay_buffer = buf
+        return model
+
+    def test_no_buf_file_no_crash(self, tmp_path: Path) -> None:
+        model = self._fake_model()
+        _apply_live_resume(model, tmp_path, {})
+        model.load_replay_buffer.assert_not_called()
+
+    def test_loads_buf_when_file_exists(self, tmp_path: Path) -> None:
+        buf_path = tmp_path / "replay_buffer.pkl"
+        buf_path.write_bytes(b"fake")
+        model = self._fake_model(is_weighted=False)
+        _apply_live_resume(model, tmp_path, {})
+        model.load_replay_buffer.assert_called_once_with(str(buf_path))
+
+    def test_applies_time_decay_to_weighted_buffer(self, tmp_path: Path) -> None:
+        (tmp_path / "replay_buffer.pkl").write_bytes(b"fake")
+        state = {"timestamp": "2020-01-01T00:00:00", "num_timesteps": 1000}
+        (tmp_path / "resume_state.json").write_text(json.dumps(state), encoding="utf-8")
+        model = self._fake_model(is_weighted=True)
+        # steps_per_day=5000, elapsed_days would be > 0 since 2020
+        _apply_live_resume(model, tmp_path, {"steps_per_day": 5000})
+        assert model.replay_buffer.global_step > 0
+
+    def test_no_decay_when_no_resume_state(self, tmp_path: Path) -> None:
+        (tmp_path / "replay_buffer.pkl").write_bytes(b"fake")
+        model = self._fake_model(is_weighted=True)
+        # No resume_state.json → elapsed=0 → global_step unchanged
+        _apply_live_resume(model, tmp_path, {"steps_per_day": 5000})
+        assert model.replay_buffer.global_step == 0
+
+    def test_elapsed_steps_override(self, tmp_path: Path) -> None:
+        (tmp_path / "replay_buffer.pkl").write_bytes(b"fake")
+        model = self._fake_model(is_weighted=True)
+        _apply_live_resume(model, tmp_path, {"elapsed_steps": 99})
+        assert model.replay_buffer.global_step == 99

@@ -14,8 +14,8 @@ Architecture:
         WeightSyncer             Lock-guarded state_dict copy to serve_model
 
 Session lifecycle (8 h):
-    1. Load snapshot from --snapshot-dir (NN + replay_buffer [Step C+] + resume_state [Step C+]).
-    2. Apply time-decay to long-term memory proportional to elapsed wall time [Step C+].
+    1. Load snapshot from --snapshot-dir (NN weights + replay_buffer + resume_state).
+    2. Apply time-decay to long-term memory proportional to elapsed wall time.
     3. Stream 1x demo while training runs in background.
     4. After --duration seconds: stop_event -> join training thread
        -> save snapshot [Step D+] -> exit.
@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import json
 import logging
 import threading
 from pathlib import Path
@@ -57,7 +58,7 @@ from block_stacker.sim.world import setup_world
 from block_stacker.streaming.broadcaster import PhysicsBroadcaster
 from block_stacker.training.checkpoint import find_latest_checkpoint
 from block_stacker.training.curriculum import resolve_graduation, stage_inventory
-from block_stacker.training.train import make_factory
+from block_stacker.training.train import _compute_elapsed_steps, make_factory
 
 LOG = logging.getLogger("serving.live")
 
@@ -203,6 +204,50 @@ def _make_train_model(
     return SAC.load(str(model_path), custom_objects=custom_objects or None)
 
 
+def _apply_live_resume(
+    train_model: SAC,
+    snapshot_dir: Path,
+    resume_cfg: dict[str, Any],
+) -> None:
+    """Load replay_buffer.pkl into train_model and apply time-decay if --no-resume not set.
+
+    Mirrors the long-term-memory restore in train.py _apply_resume(), but without
+    the NN-weight and curriculum-progress steps (those are handled separately in live mode).
+    """
+    state_path = snapshot_dir / "resume_state.json"
+    resume_state: dict[str, Any] = {}
+    if state_path.exists():
+        with state_path.open("r", encoding="utf-8-sig") as f:
+            resume_state = json.load(f)
+        LOG.info(
+            "[train] resume_state: num_timesteps=%d, timestamp=%s",
+            resume_state.get("num_timesteps", "?"),
+            resume_state.get("timestamp", "?"),
+        )
+
+    buf_path = snapshot_dir / "replay_buffer.pkl"
+    if buf_path.exists():
+        LOG.info("[train] loading replay buffer from %s", buf_path)
+        train_model.load_replay_buffer(str(buf_path))
+        if isinstance(train_model.replay_buffer, WeightedReplayBuffer):
+            elapsed = _compute_elapsed_steps(resume_cfg, resume_state)
+            if elapsed > 0:
+                old_gs = train_model.replay_buffer.global_step
+                train_model.replay_buffer.global_step += elapsed
+                LOG.info(
+                    "[train] time-decay: +%d steps to global_step (%d → %d, "
+                    "decay^%d ≈ %.4f)",
+                    elapsed, old_gs, train_model.replay_buffer.global_step,
+                    elapsed, train_model.replay_buffer.decay_rate ** min(elapsed, 50000),
+                )
+            else:
+                LOG.info("[train] time-decay: 0 elapsed steps, no decay applied")
+        else:
+            LOG.info("[train] standard ReplayBuffer, time-decay skipped")
+    else:
+        LOG.info("[train] replay_buffer.pkl not found, training starts fresh (%s)", buf_path)
+
+
 def _training_thread(
     model_path: Path,
     training_cfg: dict[str, Any],
@@ -214,6 +259,8 @@ def _training_thread(
     stop_event: threading.Event,
     syncer: WeightSyncer,
     sync_every: int,
+    snapshot_dir: Path,
+    no_resume: bool,
 ) -> None:
     """Background thread: build env, load train_model, run SAC.learn() until stop_event."""
     try:
@@ -222,6 +269,10 @@ def _training_thread(
             world_cfg, physics_cfg, reward_cfg, training_cfg, stage, n_envs,
         )
         train_model = _make_train_model(model_path, training_cfg)
+        if not no_resume:
+            _apply_live_resume(
+                train_model, snapshot_dir, training_cfg.get("resume", {}),
+            )
         train_model.set_env(vec_env)
         LOG.info(
             "[train] starting SAC.learn() background (n_params=%d)",
@@ -335,6 +386,8 @@ async def main_async(args: argparse.Namespace) -> None:
                 stop_event=stop_event,
                 syncer=syncer,
                 sync_every=args.sync_every,
+                snapshot_dir=args.snapshot_dir,
+                no_resume=args.no_resume,
             ),
         )
         train_thread.start()
@@ -433,7 +486,7 @@ def main() -> None:
                         help="学習→配信モデルへの重み同期間隔（学習ステップ単位）")
     # --- resume (Step C+ で有効) ---
     parser.add_argument("--no-resume", action="store_true", default=False,
-                        help="[Step C+] スナップショットを無視して新規学習（初回起動専用）")
+                        help="スナップショットを無視して新規学習（初回起動専用）")
 
     args = parser.parse_args()
     logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(message)s")
