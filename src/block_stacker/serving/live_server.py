@@ -31,6 +31,7 @@ import asyncio
 import json
 import logging
 import threading
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -248,6 +249,58 @@ def _apply_live_resume(
         LOG.info("[train] replay_buffer.pkl not found, training starts fresh (%s)", buf_path)
 
 
+def _save_live_snapshot(
+    train_model: SAC,
+    snapshot_dir: Path,
+    stage_id: int,
+) -> None:
+    """Persist NN weights + long-term memory + resume cursor after a live session.
+
+    checkpoint ZIP → fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip
+    replay_buffer.pkl and resume_state.json → snapshot_dir/ (same as train.py)
+    """
+    run_ts = datetime.now().strftime("%Y%m%d-%H%M%S")
+    steps = int(train_model.num_timesteps)
+
+    fresh_dir = snapshot_dir / "fresh"
+    fresh_dir.mkdir(parents=True, exist_ok=True)
+    ckpt_stem = f"sac_{run_ts}_{steps}_steps"
+    train_model.save(str(fresh_dir / ckpt_stem))
+    LOG.info("[train] checkpoint saved: %s/%s.zip", fresh_dir, ckpt_stem)
+
+    buf_path = snapshot_dir / "replay_buffer.pkl"
+    train_model.save_replay_buffer(str(buf_path))
+    LOG.info("[train] replay buffer saved: %s", buf_path)
+
+    resume_out: dict[str, Any] = {
+        "num_timesteps": steps,
+        "total_timesteps": steps,
+        "buffer_global_step": int(getattr(train_model.replay_buffer, "global_step", 0)),
+        "next_stage_id": stage_id,
+        "completed_stages": [],
+        "timestamp": datetime.now().isoformat(),
+    }
+    state_path = snapshot_dir / "resume_state.json"
+    with state_path.open("w", encoding="utf-8") as f:
+        json.dump(resume_out, f, indent=2, ensure_ascii=False)
+    LOG.info(
+        "[train] resume_state saved: %s (stage=%s, steps=%d)", state_path, stage_id, steps,
+    )
+
+
+def _self_stop_instance(reason: str) -> None:
+    """Stub: request the EC2 instance to stop itself at end of session.
+
+    Implement by calling the EC2 metadata service:
+        import requests
+        token = requests.put("http://169.254.169.254/latest/api/token", ...).text
+        requests.put("http://169.254.169.254/latest/meta-data/spot/instance-action",
+                     headers={"X-aws-ec2-metadata-token": token})
+    Or via boto3: ec2.stop_instances(InstanceIds=[instance_id]).
+    """
+    LOG.info("_self_stop_instance: reason=%r (stub -- implement for EC2 deploy)", reason)
+
+
 def _training_thread(
     model_path: Path,
     training_cfg: dict[str, Any],
@@ -255,6 +308,7 @@ def _training_thread(
     physics_cfg: PhysicsConfig,
     reward_cfg: RewardConfig,
     stage: dict[str, Any],
+    stage_id: int,
     n_envs: int,
     stop_event: threading.Event,
     syncer: WeightSyncer,
@@ -262,7 +316,12 @@ def _training_thread(
     snapshot_dir: Path,
     no_resume: bool,
 ) -> None:
-    """Background thread: build env, load train_model, run SAC.learn() until stop_event."""
+    """Background thread: build env, load train_model, run SAC.learn() until stop_event.
+
+    Saves a snapshot (checkpoint + replay buffer + resume state) to snapshot_dir on exit.
+    """
+    train_model: SAC | None = None
+    vec_env = None
     try:
         LOG.info("[train] building VecEnv (n_envs=%d) for final stage", n_envs)
         vec_env = _build_training_vec_env(
@@ -289,10 +348,16 @@ def _training_thread(
     except Exception:
         LOG.exception("[train] background training thread crashed")
     finally:
-        try:
-            vec_env.close()  # type: ignore[possibly-undefined]
-        except Exception:
-            pass
+        if train_model is not None:
+            try:
+                _save_live_snapshot(train_model, snapshot_dir, stage_id)
+            except Exception:
+                LOG.exception("[train] snapshot save failed")
+        if vec_env is not None:
+            try:
+                vec_env.close()
+            except Exception:
+                pass
         LOG.info("[train] training thread exited")
 
 
@@ -382,6 +447,7 @@ async def main_async(args: argparse.Namespace) -> None:
                 physics_cfg=physics_cfg,
                 reward_cfg=reward_cfg,
                 stage=stage,
+                stage_id=int(stage.get("id", len(stages))),
                 n_envs=args.n_envs,
                 stop_event=stop_event,
                 syncer=syncer,
@@ -446,6 +512,7 @@ async def main_async(args: argparse.Namespace) -> None:
                 LOG.warning("training thread did not stop within 15 s")
         world.disconnect()
         LOG.info("world disconnected")
+        _self_stop_instance(reason="duration elapsed")
 
 
 # ----------------------------------------------------------------- entry point

@@ -14,6 +14,8 @@ from block_stacker.serving.live_server import (
     WeightSyncer,
     _apply_live_resume,
     _resolve_model,
+    _save_live_snapshot,
+    _self_stop_instance,
 )
 
 
@@ -228,3 +230,46 @@ class TestApplyLiveResume:
         model = self._fake_model(is_weighted=True)
         _apply_live_resume(model, tmp_path, {"elapsed_steps": 99})
         assert model.replay_buffer.global_step == 99
+
+
+# ----------------------------------------------------------------- _save_live_snapshot / _self_stop
+
+
+class TestSaveLiveSnapshot:
+    def _fake_sac(self, steps: int = 1000) -> MagicMock:
+        model = MagicMock()
+        model.num_timesteps = steps
+        model.replay_buffer.global_step = steps * 2
+        return model
+
+    def test_creates_fresh_dir(self, tmp_path: Path) -> None:
+        model = self._fake_sac()
+        _save_live_snapshot(model, tmp_path, stage_id=5)
+        assert (tmp_path / "fresh").is_dir()
+
+    def test_saves_checkpoint_zip(self, tmp_path: Path) -> None:
+        model = self._fake_sac(steps=1234)
+        _save_live_snapshot(model, tmp_path, stage_id=5)
+        model.save.assert_called_once()
+        call_arg: str = model.save.call_args[0][0]
+        assert "sac_" in call_arg
+        assert "1234_steps" in call_arg
+        assert str(tmp_path / "fresh") in call_arg
+
+    def test_saves_replay_buffer(self, tmp_path: Path) -> None:
+        model = self._fake_sac()
+        _save_live_snapshot(model, tmp_path, stage_id=5)
+        model.save_replay_buffer.assert_called_once_with(str(tmp_path / "replay_buffer.pkl"))
+
+    def test_writes_resume_state_json(self, tmp_path: Path) -> None:
+        model = self._fake_sac(steps=500)
+        _save_live_snapshot(model, tmp_path, stage_id=5)
+        state_path = tmp_path / "resume_state.json"
+        assert state_path.exists()
+        data = json.loads(state_path.read_text(encoding="utf-8"))
+        assert data["num_timesteps"] == 500
+        assert data["next_stage_id"] == 5
+        assert "timestamp" in data
+
+    def test_self_stop_is_callable(self) -> None:
+        _self_stop_instance("test-reason")  # just verifies it doesn't raise
