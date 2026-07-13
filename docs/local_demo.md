@@ -59,25 +59,33 @@
 
 ### Step 1: 学習を実行
 
-**既定でオートカリキュラム（Stage 1→5 を自動進行）**。`--total-timesteps` は「**全ステージ合計の上限**」で
-（総手数は必ずこの値以下＝時間が読める。早く卒業した残りは次ステージへ回る）、
-**①散布0（全ブロックを縦タワーに積み切る）で即卒業、または ②目標高さ到達の成功率が 0.6（直近30エピソード）**
-で卒業して次ステージへ。卒業できなければ予算消化で中断。目標高さ＝在庫満積み高さ×`ratio`（既定 0.6）。
+**既定でオートカリキュラム（Stage 1→4 を自動進行）**。`--total-timesteps` は安全上限（タイムアウト）で、
+**`--target-stage`（既定 **4**）で指定したステージを卒業した時点で学習終了・プリセット保存**する。
+卒業条件：①散布0（全ブロックを縦タワーに積み切る）で即卒業、または ②目標高さ到達の成功率が 0.6（直近30エピソード）。
+目標高さ＝在庫満積み高さ×`ratio`（既定 0.6）。
 
-> **最終ステージ（Stage 5）卒業後の挙動**: Stage 5 が卒業条件を満たしても `total_timesteps` に
-> 到達するまで**最終ステージ環境で学習を継続**する（`reset_num_timesteps=False` で通算ステップ数を
-> 引き継ぐ）。これにより checkpoint が `total_timesteps` まで確実に埋まり、週次デモで使える
-> ステップ数の幅が最大化される。
+> **`--target-stage` と段階別フロー**:
+> - `--target-stage 4`（既定）: Stage 4 卒業で終了。`fresh/` にプリセット保存。Stage 5（円柱追加）は実行しない。
+> - `--target-stage 5`: Stage 5（全形状）まで完走。より完成度の高いプリセット。
+> - `--target-stage 9999`: 指定ステージが存在しないため budget 打ち切りまで走り切る（旧来の全ステージ完走相当）。
+> - `--total-timesteps` で指定した上限に先に達すると、`--target-stage` 未到達でも終了（budget 打ち切り）。
 
 ```powershell
-# 全ステージ（既定。フラグ不要でカリキュラム ON）
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000
+# ---- プリセット生成（既定: Stage 4 卒業で終了）----
+# total-timesteps は「Stage 4 を卒業できなかった場合の安全上限」（目安 1M〜5M）
+.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --total-timesteps 2000000
 
-# まず Stage 1→2 だけ試す
-.venv\Scripts\python.exe -m block_stacker.training.train --max-stage 2 --n-envs 6 --total-timesteps 4000
+# Stage 5（全形状、円柱含む）まで完走したい場合
+.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --total-timesteps 5000000 --target-stage 5
+
+# まず Stage 1→2 だけ試す（動作確認用）
+.venv\Scripts\python.exe -m block_stacker.training.train --max-stage 2 --n-envs 4 --total-timesteps 2000000
 
 # 単一ステージだけ素早く確認したいとき（Stage 1 のみ）
-.venv\Scripts\python.exe -m block_stacker.training.train --no-curriculum --n-envs 6 --total-timesteps 4000
+.venv\Scripts\python.exe -m block_stacker.training.train --no-curriculum --n-envs 4 --total-timesteps 50000
+
+# 動作確認だけ（ステージ卒業なし、数秒で終わる超短縮版）
+.venv\Scripts\python.exe -m block_stacker.training.train --no-curriculum --n-envs 2 --total-timesteps 500
 ```
 > 新人 AI は短い予算だと卒業条件に届かず「卒業せず中断」になる。進行そのものを素早く見たいだけなら
 > `configs/training.yaml` の `graduation.threshold` を下げる／`ratio` を下げる（目標を低く）。
@@ -145,21 +153,23 @@
 tools\demo_checkpoints.ps1
 ```
 
-出力例：
+出力例（`checkpoint_every=50000` で Stage 4 が ~200k step で卒業した場合）：
 
 ```
 発見された checkpoint (5 件):
-  0: 20260627-143022 / 800 steps   (sac_20260627-143022_800_steps.zip)
-  1: 20260627-143022 / 1600 steps  (sac_20260627-143022_1600_steps.zip)
-  2: 20260627-143022 / 2400 steps  (sac_20260627-143022_2400_steps.zip)
-  3: 20260627-143022 / 3200 steps  (sac_20260627-143022_3200_steps.zip)
-  4: 20260627-143022 / 4000 steps  (sac_20260627-143022_4000_steps.zip)
+  0: 20260713-100000 / 50000 steps   (sac_20260713-100000_50000_steps.zip)
+  1: 20260713-100000 / 100000 steps  (sac_20260713-100000_100000_steps.zip)
+  2: 20260713-100000 / 150000 steps  (sac_20260713-100000_150000_steps.zip)
+  3: 20260713-100000 / 198000 steps  (sac_20260713-100000_198000_steps.zip)   ← Stage 4 卒業プリセット
 
-番号を入力 (例: 5)、'all' で全部、'q' で終了
+番号を入力 (例: 0)、'all' で全部、'q' で終了
 > 0
-=== 20260627-143022 / 800 steps (sac_20260627-143022_800_steps.zip) ===
+=== 20260713-100000 / 50000 steps (sac_20260713-100000_50000_steps.zip) ===
   ai_server PID 12345、 60 秒間再生...
 ```
+
+> checkpoint 数は `checkpoint_every`（既定 50,000）と卒業タイミングに依存する。
+> `--target-stage 4` で Stage 4 が 200k〜400k step で卒業する場合、4〜8 本 + 卒業プリセット 1 本が `fresh/` に生成される。
 
 → Godot 画面で AI の動きを観察できる。
 
@@ -281,15 +291,18 @@ tools\local_loop.ps1 -Dir output\training\played
 
 ## 学習時間の見積もり
 
-i7-10750H (6 物理コア) 想定:
+i7-10750H (6 物理コア, n_envs=4) 想定。**`total_timesteps` は安全上限（タイムアウト）で、
+`--target-stage 4`（既定）で Stage 4 卒業時に自動終了する**。
 
-| total_timesteps | 学習時間 | checkpoint 数 | デモ全部見るのに |
-|---------|---------|------------|----------|
-| **4,000** (週次標準) | **約 1 分** | **5 個** | **各 60s で 5 分** |
-| 500,000 | 約 2 時間 | 5 個 | 各 60s で 5 分 |
-| 1,000,000 | 約 4 時間 | 5 個 | auto モード 30s で 2.5 分 |
+| 用途 | 推奨コマンド例 | 目安時間 | checkpoint 数 |
+|---|---|---|---|
+| 煙テスト（動作確認のみ） | `--no-curriculum --total-timesteps 500` | 数秒 | 0 |
+| **Stage 4 卒業プリセット生成（既定）** | `--n-envs 4 --total-timesteps 2000000` | **ローカル: 数時間〜丸一日** | 卒業step÷50k 本 + 1 本（卒業プリセット） |
+| Stage 5 完走（全形状） | `--n-envs 4 --total-timesteps 5000000 --target-stage 5` | ローカル: 1〜数日 | 同上 |
 
-→ 週次配信は `4,000` が標準。本格学習（Stage 4 卒業プリセット生成）は `500k+` + `--target-stage 4` 推奨。
+→ AWS **c6a.4xlarge**（n_envs=8）では Stage 4 が **1〜2h** で到達。ローカルは PyBullet
+`settle_duration=2s` が律速（3 steps/sec 程度）のため長時間かかる。
+checkpoint 数の目安: Stage 4 が 200k〜400k step で卒業する場合、4〜8 本 + 卒業プリセット 1 本。
 
 ## クラウド学習との関係
 
@@ -315,7 +328,7 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 古い→新しい順に自動ステップアップ**して配信する。
 
 ```
-学習後           → fresh/ に sac_20260627-143022_800_steps.zip ... sac_20260627-143022_4000_steps.zip が 5 本生成
+学習後           → fresh/ に sac_<run_ts>_<steps>_steps.zip が checkpoint_every 間隔＋卒業プリセット 1 本で生成
 advance_day.ps1  → fresh/ の最古モデルで ai_server を起動
                    （前日モデルを played/ へ退避 → 次の最古モデルへ切替）
 fresh/ が空になったら → played/ の最大ステップモデルを繰り返し再生
@@ -332,8 +345,9 @@ fresh/ が空になったら → played/ の最大ステップモデルを繰り
 ### セットアップ手順
 
 ```powershell
-# 1. 学習を実行（total_timesteps を 5 等分した地点で fresh/ に checkpoint が生成される）
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000
+# 1. 学習を実行（checkpoint_every=50000 間隔＋Stage 4 卒業プリセット 1 本が fresh/ に生成される）
+#    total-timesteps は安全上限（タイムアウト）。Stage 4 卒業で自動終了。
+.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --total-timesteps 2000000
 
 # 2. day 1 から配信開始（fresh/ の最古モデルで起動）
 tools\advance_day.ps1
@@ -379,14 +393,13 @@ Get-Content output\training\advance_state.json
 output/
   training/
     fresh/                 ← 学習直後の新しい checkpoint（advance_day が消費して played/ へ）
-      sac_20260627-143022_800_steps.zip
-      sac_20260627-143022_1600_steps.zip
-      sac_20260627-143022_2400_steps.zip
-      sac_20260627-143022_3200_steps.zip
-      sac_20260627-143022_4000_steps.zip
+      sac_20260713-100000_50000_steps.zip
+      sac_20260713-100000_100000_steps.zip
+      sac_20260713-100000_150000_steps.zip
+      sac_20260713-100000_198000_steps.zip   ← Stage 4 卒業プリセット（卒業タイミングで追加保存）
     played/                ← advance_day.ps1 が再生後に移動した checkpoint（run ごとに共存・衝突なし）
-      sac_20260620-091500_4000_steps.zip   ← 先週の run（別 run_ts で衝突しない）
-      sac_20260627-143022_800_steps.zip    ← 今週の 1 日目終わりに移動
+      sac_20260706-091500_342000_steps.zip   ← 先週の run（別 run_ts で衝突しない）
+      sac_20260713-100000_50000_steps.zip    ← 今週の 1 日目終わりに移動
       ...
     advance_state.json     ← {"model": "...", "from_fresh": true, "started_at": "...", ...}
     checkpoints/           ← 旧ディレクトリ（残っていても自動的に使わない）
@@ -400,6 +413,7 @@ output/
 
 - 学習スクリプト: [`src/block_stacker/training/train.py`](../src/block_stacker/training/train.py)
 - 推論サーバ: [`src/block_stacker/serving/ai_server.py`](../src/block_stacker/serving/ai_server.py)
+- **ライブ配信モード**: [`docs/live_mode.md`](live_mode.md)（`live_server.py` の起動・n_envs 設定・スナップショット引き継ぎ手順）
 - ヘルパー: [`tools/demo_checkpoints.ps1`](../tools/demo_checkpoints.ps1)、[`tools/local_loop.ps1`](../tools/local_loop.ps1)、[`tools/advance_day.ps1`](../tools/advance_day.ps1)
 - **ログ解読マニュアル**: [`docs/log_reading.md`](log_reading.md)（学習/推論ログの読み方）
 - 設計書: [`docs/block_stacker_design.md`](block_stacker_design.md)（3 層記憶アーキテクチャ §3）
