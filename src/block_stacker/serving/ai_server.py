@@ -233,14 +233,19 @@ def _resolve_model_path(explicit: Path | None) -> Path:
     """既定の推論モデルを解決する。
 
     --model 明示時はそれを使う。無指定なら fresh/ / played/ の最大ステップ checkpoint を返す。
-    どちらも空の場合は SAC.load() でエラーになるダミーパスを返す。
+    どちらも空の場合は明示的にエラー終了する（sac_latest.zip は現命名規則では存在しない）。
     """
     if explicit is not None:
         return explicit
     found = find_latest_checkpoint(Path("output/training"))
     if found is not None:
         return found
-    return Path("output/training/fresh/sac_latest.zip")
+    LOG.error(
+        "checkpoint not found in output/training/fresh/ or played/. "
+        "Run training first: .venv\\Scripts\\python.exe -m block_stacker.training.train "
+        "--n-envs 4 --total-timesteps 2000000 --target-stage 4"
+    )
+    raise SystemExit(1)
 
 
 # ----------------------------------------------------------- observation/util
