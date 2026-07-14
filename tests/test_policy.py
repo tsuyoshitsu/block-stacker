@@ -1,4 +1,4 @@
-"""Tests for the MVP 2 NN components and Dict observation env mode."""
+"""Tests for the NN components and Dict observation env mode."""
 from __future__ import annotations
 
 from pathlib import Path
@@ -223,7 +223,7 @@ def test_observation_skips_nan_pose_blocks(
 def test_env_observation_format_flat_still_works(
     world_cfg: WorldConfig, physics_cfg: PhysicsConfig, reward_cfg: RewardConfig
 ) -> None:
-    """MVP 1 path: observation_format='flat' must still return a flat Box obs."""
+    """Flat format (backward-compat): observation_format='flat' must still return a flat Box obs."""
     env = BlockStackerEnv(
         world_cfg=world_cfg,
         physics_cfg=physics_cfg,

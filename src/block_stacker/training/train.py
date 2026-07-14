@@ -8,9 +8,9 @@ Features:
     - MultiInputPolicy instead of MlpPolicy
 
 Run:
-    .venv/Scripts/python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000
+    .venv/Scripts/python.exe -m block_stacker.training.train --n-envs 4 --total-timesteps 2000000
     .venv/Scripts/python.exe -m block_stacker.training.train ^
-        --n-envs 6 --total-timesteps 4000 --resume
+        --n-envs 4 --total-timesteps 2000000 --resume
 
 ----------------------------------------------------------------------
 レビューノート（日本語）

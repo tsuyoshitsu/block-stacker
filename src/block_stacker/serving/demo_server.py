@@ -1,4 +1,4 @@
-"""MVP 3 demo server: physics + sleep/wake tracking + WebSocket streaming.
+"""Demo server (physics-only): physics + sleep/wake tracking + WebSocket streaming.
 
 No AI. Spawns blocks per `world.yaml`, runs PyBullet in real time,
 periodically perturbs random blocks (so awake/sleep transitions actually

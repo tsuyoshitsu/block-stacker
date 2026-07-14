@@ -22,7 +22,7 @@ pooling. Padding handled via PyTorch MultiheadAttention's `key_padding_mask`.
       全部積み終わると valid 0 個の行が発生しうる。その行は MultiheadAttention が
       softmax(全 -inf) で NaN を出すため、SetEncoder.forward で全 masked 行の先頭スロットを
       valid 化して回避する（pooling は元 mask=0 のままなので pooled は 0 = 「ブロック無し」）。
-    - 軽量版（MVP 2 用）: ISAB / PMA 等のフル仕様ではなく SAB 2 層のみ。
+    - 軽量版: ISAB / PMA 等のフル仕様ではなく SAB 2 層のみ。
       max_blocks=8 程度なら十分な表現力。
 
 レビューで見る観点:

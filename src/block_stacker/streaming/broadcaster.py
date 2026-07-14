@@ -1,6 +1,6 @@
 """Shared physics + broadcast loop.
 
-Both the MVP 3 (no-AI) and MVP 3.5 (AI-driven) servers run the same
+Both the demo server (no-AI) and ai_server (AI-driven) run the same
 real-time PyBullet loop:
 
     1. (optional) caller-supplied pre-step hook  ← used by AI driver for carrier
@@ -18,7 +18,7 @@ just configure it and provide their per-step hook.
 ----------------------------------------------------------------------
 目的:
     PyBullet の物理ループ（240Hz）+ プロトコルブロードキャストの共通実装。
-    MVP 3（無 AI）と MVP 3.5（AI 駆動）の両方で同一インスタンスを使う。
+    demo_server（無 AI）と ai_server（AI 駆動）の両方で同一インスタンスを使う。
 
 設計上のポイント:
     - body_ids はセッション不変。240Hz ループ内で毎回 [b.body_id for b in blocks]

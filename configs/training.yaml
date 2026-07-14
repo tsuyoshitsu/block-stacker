@@ -82,7 +82,7 @@ sac:
   # --target-stage による早期終了時でも適切な間隔で保存される。
   # save_freq = checkpoint_every // n_envs（n_calls 基準）で算出する。
   checkpoint_every: 50000
-  features_dim: 128              # MVP 2: HybridFeatureExtractor output width
+  features_dim: 128              # HybridFeatureExtractor output width
 
 # 重みつき記憶バッファ + 短期記憶の設定。子供っぽい記憶ダイナミクスを構成する。
 memory_system:
@@ -139,7 +139,7 @@ observation:
   # この値を超えてよい＝同時に枠へ映る近い散布ブロックが最大 max_blocks 個、という意味。
   # 遠い散布ブロックは枠からあぶれて見えない＝「子供の狭い視野」メタファー。
   max_blocks: 8
-  heightmap_resolution: 32       # MVP 2: NxN heightmap grid
+  heightmap_resolution: 32       # NxN heightmap grid
 
 resume:
   # --resume 時の長期記憶（WeightedReplayBuffer）時間減衰設定。

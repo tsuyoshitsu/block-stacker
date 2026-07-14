@@ -1,4 +1,4 @@
-"""Action decoding for MVP 1.
+"""Action decoding module.
 
 7-dim continuous action in [-1, 1]:
     [0..2] pickup_query xyz

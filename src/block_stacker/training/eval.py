@@ -1,10 +1,10 @@
-"""Load a trained MVP 2 SAC model and run a few episodes.
+"""Load a trained SAC model and run a few episodes.
 
 ----------------------------------------------------------------------
 レビューノート（日本語）
 ----------------------------------------------------------------------
 目的:
-    MVP 2 (Set Transformer + CNN + 短期記憶) で学習したモデルの動作確認 CLI。
+    SAC（Set Transformer + CNN + 短期記憶）で学習したモデルの動作確認 CLI。
     Dict 観測形式と MultiInputPolicy の組み合わせで推論できることを検証。
 
 設計上のポイント:

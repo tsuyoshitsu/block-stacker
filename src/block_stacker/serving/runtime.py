@@ -1,4 +1,4 @@
-"""Shared streaming-server boilerplate for MVP 3 / 3.5.
+"""Shared streaming-server boilerplate for demo_server and ai_server.
 
 Both `demo_server` and `ai_server` follow the same setup sequence:
 
@@ -14,7 +14,7 @@ This module exposes one function that returns the assembled
 レビューノート（日本語）
 ----------------------------------------------------------------------
 目的:
-    MVP 3 (demo_server) と MVP 3.5 (ai_server) の共通サーバ初期化を集約。
+    demo_server と ai_server の共通サーバ初期化を集約。
     handshake 用 world_config と initial_state provider をビルドして
     StreamingServer に紐付ける。
 

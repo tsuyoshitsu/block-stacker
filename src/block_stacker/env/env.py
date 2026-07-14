@@ -9,9 +9,9 @@
 
 設計上のポイント:
     - 観測フォーマット 2 モード:
-        "flat" (MVP 1) - 1 つの大きな Box 空間にフラット化
-        "dict" (MVP 2) - blocks + mask + heightmap + scalar の Dict 空間
-      MVP 1 path は後方互換のため残す（pyenv の MlpPolicy で動く）。
+        "flat" (旧形式) - 1 つの大きな Box 空間にフラット化
+        "dict" (現在の形式) - blocks + mask + heightmap + scalar の Dict 空間
+      flat path は後方互換のため残す（pyenv の MlpPolicy で動く）。
     - Stage 別閾値: コンストラクタ stage_h_high / stage_h_low を渡すと
       reward.yaml の collapse_height_threshold / reset_height_threshold を上書き。
       Stage 1 (2 cube) では 0.10 / 0.03 など。
@@ -35,7 +35,7 @@
     - prev_tower_ids の更新タイミング: step 末尾で new_tower_ids に置き換える。
       reset 時に initial_settle 後の状態で初期化。
     - 報酬重み (reward_cfg) と Stage 設定 (training.yaml) の責務分離は意図的。
-    - place_yaw は MVP 1 では無視（cube が回転対称のため）。MVP 2+ で形状が
+    - place_yaw は flat 形式では無視（cube が回転対称のため）。dict 形式で形状が
       増えたら place_yaw も使う想定。
 
 関連:
@@ -301,7 +301,7 @@ class BlockStackerEnv(gym.Env):
         pickup_xyz, place_xyz, _place_yaw = decode_action(
             np.asarray(action, dtype=np.float64), self.world_cfg
         )
-        # place_yaw is ignored in MVP 1 (cube orientation is symmetric).
+        # place_yaw is ignored when observation_format="flat" (cube orientation is symmetric).
 
         prev_tower_ids = self.prev_tower_ids
         height_before = tower_height(prev_tower_ids)
