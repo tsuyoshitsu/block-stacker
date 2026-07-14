@@ -29,7 +29,7 @@
 │ 学習 EC2 (c6a.4xlarge, AMD CPU)      │
 │ - SAC + 重みつきリプレイバッファ      │
 │ - SubprocVecEnv 8 並列 collect       │
-│ - 5 分毎 + 完了時 S3 にcheckpoint    │
+│ - checkpoint_every（既定 50000 steps）間隔＋卒業時に S3 へ checkpoint │
 └──────────────┬──────────────────────┘
                │ PUT
                ▼
@@ -72,7 +72,7 @@
 
 ### モデル共有フロー
 
-1. 学習側: 5 分毎に `s3://bucket/models/` へ checkpoint sync
+1. 学習側: `checkpoint_every`（既定 50000 steps）間隔＋卒業時に `s3://bucket/models/` へ checkpoint sync
 2. デモ側: 起動時に S3 から最新モデルを取り込み、ai_server で推論
 
 > **設計変更履歴**:
@@ -279,8 +279,6 @@ time_penalty: -0.05
 timeout_penalty: -1.0
 collapse_height_threshold: 0.075
 reset_height_threshold: 0.025
-flatness_bonus: 0.0
-flatness_scale: 0.1
 ```
 
 各変数の意味（変数名だけだと分かりづらいので日本語で）:
@@ -294,7 +292,6 @@ flatness_scale: 0.1
 | `timeout_penalty` | -1.0 | 無進歩で **truncate（打ち切り）** した時の追加ペナルティ |
 | `collapse_height_threshold` | 0.075 | 崩落判定の **H_high** 既定（ステージごとに上書き） |
 | `reset_height_threshold` | 0.025 | 崩落判定の **H_low** 既定（ステージごとに上書き） |
-| `flatness_bonus` / `flatness_scale` | 0.0 / 0.1 | **stub（未配線）**。env の reward 計算に未統合 |
 
 **place_success の高さ補正（案A）** — `env._compute`（step 内）で次のように `place_success` を高さで掛ける:
 

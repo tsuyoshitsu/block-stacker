@@ -107,7 +107,7 @@
 
 ```powershell
 # 初回学習を済ませてから続きを学習（find_latest_checkpoint で最新 run の最大ステップ checkpoint を自動選択）
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000 --resume
+.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 2000000 --resume
 ```
 
 - **経過日数は自動算出**（`resume_state.json` の `timestamp` から現在時刻との差を計算）。

@@ -49,9 +49,9 @@ pybullet build time: May 30 2026 15:47:27           ← 物理シミュの起動
 2026-... [training.train] Curriculum: stages [1, 2, 3, 4, 5], graduate at success_rate >= 0.60 over 30 eps
 2026-... [training.train] === Stage 1: Stage 1: cube だけ・低い目標 ===
 2026-... [training.train] Inventory: {'cube': 8}, target_height=0.240 (=満積み×0.60), h_high=0.075, h_low=0.025        ← この段階で使うブロック（cube 8 個）
-2026-... [training.train] Total timesteps (全ステージ合計の上限): 4000, n_envs: 6, subproc=True, stm_length=5
+2026-... [training.train] Total timesteps (全ステージ合計の上限): 2000000, n_envs: 6, subproc=True, stm_length=5
 2026-... [training.train] Memory system enabled: True   ← 記憶のしくみが ON
-2026-... [training.train] Beginning training (stage 1; 残り予算 4000 / 全体 4000)...  ← このステージの学習開始
+2026-... [training.train] Beginning training (stage 1; 残り予算 2000000 / 全体 2000000)...  ← このステージの学習開始
 Using cpu device                                    ← CPU で計算している
 Logging to output\training\tb\SAC_1                     ← グラフ用データ（カリキュラムを通して連続）
    …（学習が進む。数値のまとめ表が繰り返し出る → §1-2）…
