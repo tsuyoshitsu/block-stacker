@@ -397,7 +397,7 @@ aws s3 cp configs/training.yaml s3://bs-app-$ACCOUNT/configs/training.yaml
 
 ```powershell
 # ローカルで再訓練
-.venv\Scripts\python.exe -m block_stacker.training.train --total-timesteps 4000 --n-envs 4
+.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --total-timesteps 2000000 --target-stage 4
 
 # S3 にアップロード（fresh/ の最大ステップ checkpoint を最新モデルとして）
 $model = (Get-ChildItem "output\training\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
@@ -1026,11 +1026,11 @@ memory_system:
 
 ```powershell
 # 6 物理コアの PC を想定（i7-10750H 等）
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000
+.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 2000000 --target-stage 4
 ```
 
 - `--n-envs 6`: 物理コア数に合わせる（クラウドは 8、ローカルは 4〜6）
-- `--total-timesteps 4000`: 週次配信標準（安全上限。実際は `--target-stage 4` 卒業で早期終了）
+- `--total-timesteps 2000000`: **安全上限（タイムアウト）**。`--target-stage 4` 卒業で早期終了するため実際の手数はこれより少ない
 - `output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` が `checkpoint_every`（既定 50000 steps）間隔で保存（ステージ番号はファイル名に含まれない。`sac_final.zip` は廃止）
 
 ### G.2 TensorBoard で学習曲線を見る（別ターミナル）

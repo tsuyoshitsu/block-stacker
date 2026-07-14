@@ -142,7 +142,7 @@ if ($freshModels.Count -gt 0) {
 } else {
     Write-Host ""
     Write-Host "ERROR: fresh/ and played/ are both empty. Run training first:" -ForegroundColor Red
-    Write-Host "  .venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000" -ForegroundColor Yellow
+    Write-Host "  .venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --total-timesteps 2000000 --target-stage 4" -ForegroundColor Yellow
     exit 1
 }
 

@@ -17,7 +17,7 @@
 #
 # 設計上のポイント（日本語レビューノート）:
 #   - checkpoint を 'sac_YYYYMMDD-HHMMSS_<steps>_steps.zip' から抽出。
-#     同一 run の 5 本は同じ YYYYMMDD-HHMMSS を共有。(RunTs, Steps) 昇順が学習順。
+#     同一 run の checkpoint は同じ YYYYMMDD-HHMMSS を共有。(RunTs, Steps) 昇順が学習順。
 #   - 再生は ai_server が「常に最終ステージの世界」で行う（既定で stages[-1] を使う）。
 #     どの段階の checkpoint でも最終ステージ環境で成長を見られる。
 #   - ai_server は子プロセスとして起動、PID 管理して時間後に Stop-Process
@@ -47,7 +47,7 @@ function Get-Checkpoints {
     if (-not (Test-Path $Dir)) {
         Write-Host "checkpoint ディレクトリが見つかりません: $Dir" -ForegroundColor Red
         Write-Host "先に学習を回してください:" -ForegroundColor Yellow
-        Write-Host "  .venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000" -ForegroundColor Yellow
+        Write-Host "  .venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --total-timesteps 2000000 --target-stage 4" -ForegroundColor Yellow
         exit 1
     }
     Get-ChildItem $Dir -Filter "sac_*.zip" |

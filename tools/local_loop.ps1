@@ -83,7 +83,7 @@ if ($models.Count -eq 0) {
     Write-Host ""
     Write-Host "ERROR: no checkpoints found in $Dir" -ForegroundColor Red
     Write-Host "  Run training first:" -ForegroundColor Yellow
-    Write-Host "  .venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 4000" -ForegroundColor Yellow
+    Write-Host "  .venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --total-timesteps 2000000 --target-stage 4" -ForegroundColor Yellow
     exit 1
 }
 

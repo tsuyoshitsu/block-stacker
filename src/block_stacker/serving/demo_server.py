@@ -5,8 +5,8 @@ periodically perturbs random blocks (so awake/sleep transitions actually
 happen), and broadcasts to any connected WebSocket clients.
 
 Run:
-    uv run python -m block_stacker.serving.demo_server
-    uv run python -m block_stacker.serving.demo_server --port 9000 --no-perturb
+    .venv\Scripts\python.exe -m block_stacker.serving.demo_server
+    .venv\Scripts\python.exe -m block_stacker.serving.demo_server --port 9000 --no-perturb
 
 ----------------------------------------------------------------------
 レビューノート（日本語）

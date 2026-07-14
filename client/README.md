@@ -56,7 +56,7 @@ client/
 
 4. **サーバを起動** （別ターミナルで）:
    ```powershell
-   uv run python -m block_stacker.serving.demo_server --port 8765
+   .venv\Scripts\python.exe -m block_stacker.serving.demo_server --port 8765
    ```
 
 5. **クライアントを実行**:

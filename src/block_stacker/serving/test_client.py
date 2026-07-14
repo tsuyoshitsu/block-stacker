@@ -2,8 +2,8 @@
 a running summary of received messages.
 
 Run (after starting demo_server):
-    uv run python -m block_stacker.serving.test_client
-    uv run python -m block_stacker.serving.test_client --uri ws://localhost:8765 --seconds 10
+    .venv\Scripts\python.exe -m block_stacker.serving.test_client
+    .venv\Scripts\python.exe -m block_stacker.serving.test_client --uri ws://localhost:8765 --seconds 10
 
 ----------------------------------------------------------------------
 レビューノート（日本語）

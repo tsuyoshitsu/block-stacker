@@ -4,9 +4,9 @@ Checkpoint filename conventions
 --------------------------------
 New format (since 2026-06):
     sac_YYYYMMDD-HHMMSS_<steps>_steps.zip
-    Example: sac_20260627-143022_3990_steps.zip
+    Example: sac_20260627-143022_50000_steps.zip
     The run-timestamp prefix is shared across all checkpoints of the same training
-    run (same 5 files within one run share the same YYYYMMDD-HHMMSS string).
+    run (all checkpoints within one run share the same YYYYMMDD-HHMMSS string).
 
 Old format (backward compat, pre-2026-06):
     sac_<steps>_steps.zip
