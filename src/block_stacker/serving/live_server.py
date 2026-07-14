@@ -50,10 +50,10 @@ from block_stacker.env.env import inventory_full_stack_height
 from block_stacker.policy.weighted_replay_buffer import WeightedReplayBuffer
 from block_stacker.serving.ai_server import (
     CarrierDriver,
-    ShortTermMemory,
     ai_driver_task,
     spawn_stage_blocks,
 )
+from block_stacker.serving.stm import ShortTermMemory
 from block_stacker.serving.runtime import setup_streaming_runtime
 from block_stacker.sim.world import setup_world
 from block_stacker.streaming.broadcaster import PhysicsBroadcaster
