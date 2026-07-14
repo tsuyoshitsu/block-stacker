@@ -54,13 +54,14 @@ ENV CONFIGS_DIR=/app/configs
 # ENV BS_GRADUATION_WINDOW=30
 
 ENTRYPOINT ["python", "-m"]
-# 既定は MVP 2 SAC 訓練 + オートカリキュラム（Stage 1→5 を自動進行）。
+# 既定は SAC 訓練 + オートカリキュラム（Stage 1→4 を自動進行、--target-stage 4 既定）。
 #   カリキュラムは training.train の既定 ON（下の --curriculum は明示のため）。
 #   各ステージで「散布0で即卒業」または「目標高さ到達の success_rate>=0.6（直近30）」で卒業。
 #   --total-timesteps は「全ステージ合計の上限（グローバル予算）」。総手数は必ずこの値以下。
 #   早く卒業した分の残りが次ステージに回る。使い切ったら中断。SubprocVecEnv 8 並列。
-#   単一 Stage 1 に戻すなら --no-curriculum を渡す。
-# 保存: 最終 sac_final.zip のみ（ステージごとの最終モデルは保存せず checkpoints/ で補完。デモは sac_final.zip を読む）。
+#   単一 Stage 1 に戻すなら --no-curriculum を渡す。Stage 5 まで進む場合は --target-stage 5 を追加。
+# 保存: fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip を checkpoint_every（既定 50000 steps）間隔で保存。
+#   --target-stage 卒業時に追加で明示的 checkpoint を保存（最終モデル相当）。sac_final.zip は廃止。
 CMD ["block_stacker.training.train", \
      "--curriculum", \
      "--total-timesteps", "1000000", \

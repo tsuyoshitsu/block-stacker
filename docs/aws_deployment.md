@@ -266,10 +266,10 @@ cd C:\Users\iii03\block-stacker\lambda
 **学習 EC2 (`learner.sh`)** も同様の流れで、`docker run ... training.train` が走り、5 分毎に `aws s3 sync` で checkpoint を S3 に書き戻します。
 
 > **オートカリキュラム（既定で有効）**: カリキュラムは `training.train` の**デフォルト ON**
-> （`Dockerfile.learner` の `CMD` でも明示）。Stage 1→5 を自動進行する。`--total-timesteps`=1M は
+> （`Dockerfile.learner` の `CMD` でも明示）。Stage 1→4 を自動進行する（`--target-stage 4` 既定。`--target-stage 5` で Stage 5 まで進む）。`--total-timesteps`=1M は
 > **全ステージ合計の上限（グローバル予算）**で、**総手数は必ず 1M 以下**＝起動時間・コストが見積もれる。
 > 各ステージは **散布0で即卒業**または**目標高さ到達の成功率 0.6**で卒業し、早く卒業した残りは次へ回る。
-> 使い切ったら中断。成果は `fresh/sac_*_steps.zip`（等分 5 本）を S3 に保存（`sac_final.zip` は廃止）。
+> 使い切ったら中断。成果は `fresh/sac_*_steps.zip` を `checkpoint_every`（既定 50000 steps）間隔で S3 に保存（`sac_final.zip` は廃止）。
 > Stage 1 のみに戻すなら `CMD` に `--no-curriculum` を渡す（既定 ON なので `--curriculum` を外すだけでは無効化されない）。
 > **デモ EC2 の `ai_server` は常に最終ステージ（全形状）でモデルを動かし**、既定モデルは
 > `fresh/` / `played/` の最大ステップ checkpoint を自動選択する。
