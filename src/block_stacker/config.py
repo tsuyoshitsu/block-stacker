@@ -191,8 +191,6 @@ class RewardConfig:
     timeout_penalty: float
     collapse_height_threshold: float    # default H_high if stage doesn't override
     reset_height_threshold: float       # default H_low  if stage doesn't override
-    flatness_bonus: float
-    flatness_scale: float
 
     @classmethod
     def from_yaml(cls, path: Path) -> RewardConfig:
@@ -205,8 +203,6 @@ class RewardConfig:
             timeout_penalty=float(data.get("timeout_penalty", -1.0)),
             collapse_height_threshold=float(data["collapse_height_threshold"]),
             reset_height_threshold=float(data["reset_height_threshold"]),
-            flatness_bonus=float(data.get("flatness_bonus", 0.0)),
-            flatness_scale=float(data.get("flatness_scale", 0.1)),
         )
 
 
