@@ -8,10 +8,8 @@
     タワー検出 + 報酬計算をひとまとめにし、Gym の step/reset インタフェースを提供。
 
 設計上のポイント:
-    - 観測フォーマット 2 モード:
-        "flat" (旧形式) - 1 つの大きな Box 空間にフラット化
-        "dict" (現在の形式) - blocks + mask + heightmap + scalar の Dict 空間
-      flat path は後方互換のため残す（pyenv の MlpPolicy で動く）。
+    - 観測フォーマット: "dict" のみ対応。
+        blocks + mask + heightmap + scalar の Dict 空間（Set Transformer + CNN 用）。
     - Stage 別閾値: コンストラクタ stage_h_high / stage_h_low を渡すと
       reward.yaml の collapse_height_threshold / reset_height_threshold を上書き。
       Stage 1 (2 cube) では 0.10 / 0.03 など。
@@ -35,8 +33,7 @@
     - prev_tower_ids の更新タイミング: step 末尾で new_tower_ids に置き換える。
       reset 時に initial_settle 後の状態で初期化。
     - 報酬重み (reward_cfg) と Stage 設定 (training.yaml) の責務分離は意図的。
-    - place_yaw は flat 形式では無視（cube が回転対称のため）。dict 形式で形状が
-      増えたら place_yaw も使う想定。
+    - place_yaw は現在未使用（cube が回転対称のため）。形状が増えたら使う想定。
 
 関連:
     - 観測パッキング: env/observation.py
@@ -49,7 +46,7 @@ from __future__ import annotations
 
 import math
 from collections import deque
-from typing import Any, Literal
+from typing import Any
 
 import gymnasium as gym
 import numpy as np
@@ -58,9 +55,7 @@ from gymnasium import spaces
 from block_stacker.config import PhysicsConfig, RewardConfig, ShapeSpec, WorldConfig
 from block_stacker.env.action import ACTION_DIM, decode_action
 from block_stacker.env.observation import (
-    observation_dim,
     pack_observation_dict,
-    pack_observation_flat,
     per_block_dims,
 )
 from block_stacker.env.tower import find_tower_blocks, tower_base_xy, tower_height
@@ -78,7 +73,6 @@ from block_stacker.sim.carrier import (
 from block_stacker.sim.heightmap import compute_heightmap
 from block_stacker.sim.world import World, setup_world
 
-ObservationFormat = Literal["flat", "dict"]
 
 # Event type 定数（info dict に格納、WeightedReplayBuffer が初期重み決定に使う）。
 EVENT_COLLAPSE = "collapse"
@@ -146,7 +140,6 @@ class BlockStackerEnv(gym.Env):
         stage_h_low: float | None = None,
         target_height_ratio: float = 0.6,
         max_actions_without_progress: int = 10,
-        observation_format: ObservationFormat = "flat",
         heightmap_resolution: int = 32,
         stm_length: int = 0,
     ) -> None:
@@ -184,7 +177,6 @@ class BlockStackerEnv(gym.Env):
         self.shape_index: dict[str, int] = {n: i for i, n in enumerate(self.shape_order)}
         self.n_shapes: int = len(self.shape_order)
 
-        self.observation_format: ObservationFormat = observation_format
         self.heightmap_resolution = heightmap_resolution
         # 短期記憶: 直近 stm_length 手の (action, reward, result_score) を保持。
         # stm_length=0 で無効化（後方互換）。dict 観測の時のみ Dict に追加される。
@@ -193,50 +185,44 @@ class BlockStackerEnv(gym.Env):
         self.action_space = spaces.Box(
             low=-1.0, high=1.0, shape=(ACTION_DIM,), dtype=np.float32
         )
-        if observation_format == "flat":
-            self.observation_space = spaces.Box(
+        pb_dim = per_block_dims(self.n_shapes)
+        space_dict: dict[str, spaces.Space] = {
+            "blocks": spaces.Box(
                 low=-np.inf, high=np.inf,
-                shape=(observation_dim(max_blocks, self.n_shapes),), dtype=np.float32,
+                shape=(max_blocks, pb_dim), dtype=np.float32,
+            ),
+            "blocks_mask": spaces.Box(
+                low=0.0, high=1.0,
+                shape=(max_blocks,), dtype=np.float32,
+            ),
+            "heightmap": spaces.Box(
+                low=-np.inf, high=np.inf,
+                shape=(4, heightmap_resolution, heightmap_resolution),
+                dtype=np.float32,
+            ),
+            "tower_top_z": spaces.Box(
+                low=-np.inf, high=np.inf,
+                shape=(1,), dtype=np.float32,
+            ),
+        }
+        if self.stm_length > 0:
+            space_dict["recent_actions"] = spaces.Box(
+                low=-1.0, high=1.0,
+                shape=(self.stm_length, ACTION_DIM), dtype=np.float32,
             )
-        else:  # dict
-            pb_dim = per_block_dims(self.n_shapes)
-            space_dict: dict[str, spaces.Space] = {
-                "blocks": spaces.Box(
-                    low=-np.inf, high=np.inf,
-                    shape=(max_blocks, pb_dim), dtype=np.float32,
-                ),
-                "blocks_mask": spaces.Box(
-                    low=0.0, high=1.0,
-                    shape=(max_blocks,), dtype=np.float32,
-                ),
-                "heightmap": spaces.Box(
-                    low=-np.inf, high=np.inf,
-                    shape=(4, heightmap_resolution, heightmap_resolution),
-                    dtype=np.float32,
-                ),
-                "tower_top_z": spaces.Box(
-                    low=-np.inf, high=np.inf,
-                    shape=(1,), dtype=np.float32,
-                ),
-            }
-            if self.stm_length > 0:
-                space_dict["recent_actions"] = spaces.Box(
-                    low=-1.0, high=1.0,
-                    shape=(self.stm_length, ACTION_DIM), dtype=np.float32,
-                )
-                space_dict["recent_rewards"] = spaces.Box(
-                    low=-np.inf, high=np.inf,
-                    shape=(self.stm_length,), dtype=np.float32,
-                )
-                space_dict["recent_results"] = spaces.Box(
-                    low=-1.0, high=1.0,
-                    shape=(self.stm_length,), dtype=np.float32,
-                )
-                space_dict["recent_mask"] = spaces.Box(
-                    low=0.0, high=1.0,
-                    shape=(self.stm_length,), dtype=np.float32,
-                )
-            self.observation_space = spaces.Dict(space_dict)
+            space_dict["recent_rewards"] = spaces.Box(
+                low=-np.inf, high=np.inf,
+                shape=(self.stm_length,), dtype=np.float32,
+            )
+            space_dict["recent_results"] = spaces.Box(
+                low=-1.0, high=1.0,
+                shape=(self.stm_length,), dtype=np.float32,
+            )
+            space_dict["recent_mask"] = spaces.Box(
+                low=0.0, high=1.0,
+                shape=(self.stm_length,), dtype=np.float32,
+            )
+        self.observation_space = spaces.Dict(space_dict)
 
         # Episode state
         self.world: World | None = None
@@ -263,7 +249,7 @@ class BlockStackerEnv(gym.Env):
         *,
         seed: int | None = None,
         options: dict[str, Any] | None = None,
-    ) -> tuple[np.ndarray | dict[str, np.ndarray], dict[str, Any]]:
+    ) -> tuple[dict[str, np.ndarray], dict[str, Any]]:
         super().reset(seed=seed)
         if seed is not None:
             self.rng = np.random.default_rng(seed)
@@ -295,13 +281,13 @@ class BlockStackerEnv(gym.Env):
 
     def step(
         self, action: np.ndarray
-    ) -> tuple[np.ndarray | dict[str, np.ndarray], float, bool, bool, dict[str, Any]]:
+    ) -> tuple[dict[str, np.ndarray], float, bool, bool, dict[str, Any]]:
         assert self.world is not None
 
         pickup_xyz, place_xyz, _place_yaw = decode_action(
             np.asarray(action, dtype=np.float64), self.world_cfg
         )
-        # place_yaw is ignored when observation_format="flat" (cube orientation is symmetric).
+        # place_yaw is currently unused (cube orientation is symmetric).
 
         prev_tower_ids = self.prev_tower_ids
         height_before = tower_height(prev_tower_ids)
@@ -555,18 +541,10 @@ class BlockStackerEnv(gym.Env):
             return True
         return False
 
-    def _get_obs(self) -> np.ndarray | dict[str, np.ndarray]:
+    def _get_obs(self) -> dict[str, np.ndarray]:
         tower_ids = self.prev_tower_ids if self.prev_tower_ids else self._compute_tower_ids()
         h_top = tower_height(tower_ids)
         ref_xy = tower_base_xy(tower_ids) if tower_ids else (0.0, 0.0)
-        if self.observation_format == "flat":
-            return pack_observation_flat(
-                self.blocks, tower_ids, self.max_blocks, h_top,
-                shape_index=self.shape_index,
-                n_shapes=self.n_shapes,
-                reference_xy=ref_xy,
-            )
-        # dict
         wall_ids = self.world.wall_ids if self.world is not None else []
         heightmap = compute_heightmap(
             self.world_cfg,

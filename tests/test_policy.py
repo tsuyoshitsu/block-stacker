@@ -122,7 +122,6 @@ def test_env_dict_observation_shape(
         max_steps=2,
         max_blocks=8,
         inventory_override={"cube": 3},
-        observation_format="dict",
         heightmap_resolution=16,
         initial_settle_steps=30,
         settle_steps_per_action=30,
@@ -164,7 +163,6 @@ def test_no_false_scatter0_on_physics_blowup(
         max_steps=5,
         max_blocks=8,
         inventory_override={"cube": 4},
-        observation_format="dict",
         heightmap_resolution=16,
         initial_settle_steps=30,
         settle_steps_per_action=30,
@@ -197,7 +195,6 @@ def test_observation_skips_nan_pose_blocks(
         max_steps=5,
         max_blocks=8,
         inventory_override={"cube": 4},
-        observation_format="dict",
         heightmap_resolution=16,
         initial_settle_steps=30,
         settle_steps_per_action=30,
@@ -220,25 +217,3 @@ def test_observation_skips_nan_pose_blocks(
         env.close()
 
 
-def test_env_observation_format_flat_still_works(
-    world_cfg: WorldConfig, physics_cfg: PhysicsConfig, reward_cfg: RewardConfig
-) -> None:
-    """Flat format (backward-compat): observation_format='flat' must still return a flat Box obs."""
-    env = BlockStackerEnv(
-        world_cfg=world_cfg,
-        physics_cfg=physics_cfg,
-        reward_cfg=reward_cfg,
-        max_steps=2,
-        max_blocks=8,
-        inventory_override={"cube": 3},
-        observation_format="flat",
-        initial_settle_steps=30,
-        settle_steps_per_action=30,
-    )
-    try:
-        obs, _ = env.reset(seed=5)
-        assert isinstance(obs, np.ndarray)
-        n_shapes = len(world_cfg.shapes)
-        assert obs.shape == ((13 + n_shapes) * 8 + 1,)
-    finally:
-        env.close()

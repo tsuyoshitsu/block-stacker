@@ -12,7 +12,7 @@ from block_stacker.config import (
     WorldConfig,
 )
 from block_stacker.env.env import BlockStackerEnv
-from block_stacker.env.observation import observation_dim
+from block_stacker.env.observation import per_block_dims
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 CONFIGS_DIR = REPO_ROOT / "configs"
@@ -53,11 +53,14 @@ def test_env_spaces(
     )
     try:
         assert env.action_space.shape == (7,)
-        # observation_dim depends on n_shapes (cube, cuboid, cylinder in world.yaml)
+        # observation_space is a Dict space (blocks + mask + heightmap + scalar)
         n_shapes = len(world_cfg.shapes)
-        assert env.observation_space.shape == (observation_dim(8, n_shapes),)
-        # Sanity: 13 + n_shapes per block + 1 scalar tail
-        assert env.observation_space.shape == ((13 + n_shapes) * 8 + 1,)
+        pb_dim = per_block_dims(n_shapes)
+        from gymnasium import spaces as gym_spaces
+        assert isinstance(env.observation_space, gym_spaces.Dict)
+        assert env.observation_space["blocks"].shape == (8, pb_dim)
+        assert env.observation_space["blocks_mask"].shape == (8,)
+        assert env.observation_space["tower_top_z"].shape == (1,)
     finally:
         env.close()
 
@@ -219,10 +222,12 @@ def test_env_reset_step(
         initial_settle_steps=60,
     )
     n_shapes = len(world_cfg.shapes)
+    pb_dim = per_block_dims(n_shapes)
     try:
         obs, info = env.reset(seed=42)
-        assert obs.shape == (observation_dim(8, n_shapes),)
-        assert obs.dtype == np.float32
+        assert isinstance(obs, dict)
+        assert obs["blocks"].shape == (8, pb_dim)
+        assert obs["blocks"].dtype == np.float32
         assert info["n_blocks"] == 3
         assert "steps_since_progress" in info
 
@@ -231,7 +236,8 @@ def test_env_reset_step(
         for _ in range(3):
             action = rng.uniform(-1.0, 1.0, size=(7,)).astype(np.float32)
             obs, reward, terminated, truncated, info = env.step(action)
-            assert obs.shape == (observation_dim(8, n_shapes),)
+            assert isinstance(obs, dict)
+            assert obs["blocks"].shape == (8, pb_dim)
             assert isinstance(reward, float)
             assert isinstance(terminated, bool)
             assert isinstance(truncated, bool)

@@ -22,7 +22,7 @@ Run:
       - 長期の記憶 = WeightedReplayBuffer（重みつき + 時間減衰 + recall ノイズ）
 
 設計上のポイント:
-    - observation_format="dict", stm_length=N で短期記憶を含む Dict 観測に。
+    - stm_length=N で短期記憶を含む Dict 観測に（observation_format は dict 固定）。
     - MultiInputPolicy + HybridFeatureExtractor が短期記憶ストリームを自動で扱う。
     - replay_buffer_class=WeightedReplayBuffer を渡し、kwargs で記憶ダイナミクスを設定。
     - memory_system.enabled=false なら標準 SAC バッファに退化（A/B 比較用）。
@@ -123,7 +123,6 @@ def _make_env(
         stage_h_low=stage_h_low,
         target_height_ratio=target_height_ratio,
         max_actions_without_progress=max_actions_without_progress,
-        observation_format="dict",
         heightmap_resolution=heightmap_resolution,
         stm_length=stm_length,
     )

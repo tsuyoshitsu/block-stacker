@@ -8,7 +8,7 @@
     Dict 観測形式と MultiInputPolicy の組み合わせで推論できることを検証。
 
 設計上のポイント:
-    - observation_format="dict" を env に明示渡し。
+    - Dict 観測形式（observation_format は dict 固定）で推論。
     - stm_length は training.yaml から読む（学習時と一致させる）。
     - inventory_override={"cube": 5} で Stage 1 と同じ分布に揃える。
 """
@@ -81,7 +81,6 @@ def main() -> None:
         render_mode="human" if args.gui else None,
         stage_h_high=0.10,
         stage_h_low=0.03,
-        observation_format="dict",
         stm_length=stm_length,
     )
 
