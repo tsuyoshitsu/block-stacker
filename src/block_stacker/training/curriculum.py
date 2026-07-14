@@ -20,8 +20,6 @@
       → train.py のループが次ステージへ進む。
     - 観測空間は全ステージ共通（max_blocks=8 等で固定）なので、同じ model を
       model.set_env() で各ステージに付け替えるだけでよい（NN もバッファも引き継ぐ）。
-    - 観測空間は全ステージ共通（max_blocks=8 等で固定）なので、同じ model を
-      model.set_env() で各ステージに付け替えるだけでよい（NN もバッファも引き継ぐ）。
 
 関連:
     - configs/training.yaml: curriculum.graduation (window / threshold / ratio)
