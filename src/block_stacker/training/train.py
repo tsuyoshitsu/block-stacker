@@ -540,7 +540,7 @@ def main() -> None:
     else:
         run_stages = [all_stages[0]]
 
-    LOG.info("MVP 2: SAC (%s)",
+    LOG.info("SAC (%s)",
              "curriculum" if args.curriculum else f"single-stage: {all_stages[0]['name']}")
     LOG.info("Total timesteps (全ステージ合計の上限): %d, n_envs: %d, subproc=%s, stm_length=%d",
              total_timesteps, n_envs, args.use_subproc, stm_length)
