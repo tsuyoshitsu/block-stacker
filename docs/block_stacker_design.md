@@ -44,7 +44,7 @@
                ▼
 ┌─────────────────────────────────────┐
 │ デモ EC2 (c6i.xlarge, Intel CPU)     │
-│ - ai_server.py (PyBullet 物理シム)   │
+│ - live_server.py (配信+バックグラウンド学習融合) │
 │ - 物理1x速、フルアニメーション         │
 │ - WebSocket :8765 で配信             │
 └──────────────┬──────────────────────┘
@@ -73,7 +73,7 @@
 ### モデル共有フロー
 
 1. 学習側: `checkpoint_every`（既定 50000 steps）間隔＋卒業時に `s3://bucket/models/` へ checkpoint sync
-2. デモ側: 起動時に S3 から最新モデルを取り込み、ai_server で推論
+2. デモ側: 起動時に S3 から最新モデルを取り込み、live_server で配信（バックグラウンド学習込み）
 
 > **設計変更履歴**:
 > - ElastiCache Redis は未使用のため撤去（実装上 import 無し、月 ¥2,460 節約）
@@ -404,10 +404,10 @@ all_placed = 散布0 を達成                     # 即卒業のトリガー（
   指定ステージ卒業時点で学習終了・プリセット保存。`--target-stage 9999` で旧来の budget 完走動作に戻せる。
 - **`--target-stage` 未到達で budget 枯渇した場合**: 最終ステージ卒業後に budget が残っていれば
   `StageMonitorCallback` で継続学習（`_run_budget_continuation`）。卒業で打ち切った場合はスキップ。
-- **デモ配信（[`serving/ai_server.py`](src/block_stacker/serving/ai_server.py)）は常に最終ステージ**
-  （全形状）でモデルを動かす。既定モデルは `find_latest_checkpoint`（ソートキー `(run_ts, steps)` 降順の最大値）で自動選択。
-- **ライブ配信モード（[`serving/live_server.py`](src/block_stacker/serving/live_server.py)）**:
-  学習（train_model）と配信（serve_model）を 1 プロセスに融合した形式。
+- **本番配信（[`serving/live_server.py`](src/block_stacker/serving/live_server.py)）**:
+  学習（train_model）と配信（serve_model）を 1 プロセスに融合した形式。常に最終ステージ（Stage 5）で配信。
+  既定モデルは `find_latest_checkpoint`（ソートキー `(run_ts, steps)` 降順の最大値）で自動選択。
+  [`serving/ai_server.py`](src/block_stacker/serving/ai_server.py)（推論専用・学習なし）はローカル開発・動作確認用として残る。
   常に最終ステージ（Stage 5）で配信しながら、バックグラウンドスレッドで SAC を継続訓練する。
 
   ```
@@ -827,6 +827,8 @@ ap-northeast-1 (Tokyo)
 | **bs-demo-start** | `cron(0 5 ? * MON-FRI *)` | 月-金 14:00 | デモ 176h/月 | bs-demo-asg + bs-streamer-asg |
 | **bs-demo-stop** | `cron(0 13 ? * MON-FRI *)` | 月-金 22:00 | 同上 | 同上 |
 
+> **スケジュール（暫定・調整中）**: 上記 cron は現時点の設定値。稼働時間帯・学習頻度は今後変更予定のため確定値ではない。
+>
 > 設計変更履歴: 旧版は全 ASG が土日 14-22 一括稼働 (68h/月)。新版は学習を絞り、配信を増やして視聴機会 2.6 倍に。
 
 #### Lambda 構成
@@ -869,7 +871,7 @@ handler.py の `_resolve_asg_names(event)` が payload 優先、未指定なら 
            │ 内部 VPC (SG: streamer → demo:8765)
   ┌────────▼──────────────────┐
   │ デモ EC2 c6i.xlarge Spot   │ Private Subnet
-  │  - ai_server.py (Docker)   │
+  │  - live_server.py (Docker) │
   └────────┬──────────────────┘
   ┌────────▼──────────────────┐
   │ 学習 EC2 c6a.4xlarge Spot  │ Private Subnet
@@ -907,7 +909,7 @@ handler.py の `_resolve_asg_names(event)` が payload 優先、未指定なら 
 
 **セッション開始時:**
 - S3 から world_state をロード → PyBullet に復元
-- モデル取得して ai_server 起動
+- モデル取得して live_server 起動
 - 視聴者には「先週末の続き」として見える
 
 ### 8.7 Spot 中断対応
@@ -922,7 +924,7 @@ ASG + Mixed Instances Policy + capacity-optimized で自動再起動。
 
 | Image | Dockerfile | ベース | 用途 |
 |------|-----------|--------|------|
-| `block-stacker/demo` | `Dockerfile` | python:3.11-slim | デモ EC2 (`serving.ai_server`) |
+| `block-stacker/demo` | `Dockerfile` | python:3.11-slim | デモ EC2 (`serving.live_server`) |
 | `block-stacker/learner` | `Dockerfile.learner` | python:3.12-slim | 学習 EC2 (`training.train`) |
 
 両イメージとも **CPU torch wheel** を使用（GPU 不要）。配信 EC2 は Caddy をネイティブ実行（コンテナ化なし）。
@@ -996,7 +998,7 @@ ASG + Mixed Instances Policy + capacity-optimized で自動再起動。
 | 物理 | 摩擦 | block-block 0.45 / block-ground 0.5 / block-wall 0.4 |
 | 物理 | キャリア拘束 | point2point、max_force 8N、軌道速度 0.3m/s |
 | AWS | リージョン | ap-northeast-1 (Tokyo) |
-| AWS | 稼働 | 学習 隔週土曜 14-22 (16h/月) / デモ+配信 平日 14-22 (176h/月) |
+| AWS | 稼働（暫定・調整中） | 学習 隔週土曜 14-22 (16h/月) / デモ+配信 平日 14-22 (176h/月) |
 | AWS | 学習 | **c6a.4xlarge Spot (AMD EPYC, CPU-only)** |
 | AWS | デモ | c6i.xlarge Spot |
 | AWS | 配信 | t4g.small Spot + Caddy（自動 TLS） |
