@@ -1,18 +1,17 @@
-﻿# ローカル試運転手順書（成長観察デモ）
+﻿# ローカル試運転手順書
 
-ローカルで SAC を学習させながら、**timestep ごとの checkpoint** をデモ再生して、AI の
-成長過程を観察するためのガイド。
+ローカルで SAC を学習させ、生成したモデルをデモ再生して動作を確認するためのガイド。
 
 > AWS にデプロイする本番は別途 [`docs/aws_deployment.md`](aws_deployment.md) を参照。
-> こちらは試運転・動作確認・成長観察用のローカルワークフロー。
+> こちらは試運転・動作確認用のローカルワークフロー。
 
 ## 概要
 
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ 1. 学習を回す                                            │
-│    python -m block_stacker.training.train --total-timesteps 4000  │
-│    → output/training/fresh/ に sac_20260627-143022_800_steps.zip...  │
+│    python -m block_stacker.training.train --total-timesteps 2000000 │
+│    → output/training/fresh/ に sac_20260713-100000_198000_steps.zip │
 └──────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -24,14 +23,13 @@
                             │
                             ▼
 ┌──────────────────────────────────────────────────────────┐
-│ 3. checkpoint を順番にデモ                              │
+│ 3. モデルをデモ再生                                      │
 │    tools\demo_checkpoints.ps1                            │
-│    → ai_server を一つずつ起動、各 60 秒視聴            │
-│    → step 5,000 → 25,000 → 100,000 と切替えていく       │
+│    → ai_server が最終ステージの世界でモデルを動かす      │
 └──────────────────────────────────────────────────────────┘
                             │
                             ▼
-            AI が「だんだん上手くなる」のを目視確認
+            AI がどこまで積めるかを目視確認
 ```
 
 ## 前提
@@ -78,8 +76,8 @@
 # Stage 5（全形状、円柱含む）まで完走したい場合
 .venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --total-timesteps 5000000 --target-stage 5
 
-# まず Stage 1→2 だけ試す（動作確認用）
-.venv\Scripts\python.exe -m block_stacker.training.train --max-stage 2 --n-envs 4 --total-timesteps 2000000
+# まず Stage 1→2 だけ試す（動作確認用。--target-stage で止めないと Stage 2 卒業後も予算を使い切るまで走る）
+.venv\Scripts\python.exe -m block_stacker.training.train --target-stage 2 --n-envs 4 --total-timesteps 2000000
 
 # 単一ステージだけ素早く確認したいとき（Stage 1 のみ）
 .venv\Scripts\python.exe -m block_stacker.training.train --no-curriculum --n-envs 4 --total-timesteps 50000
@@ -93,12 +91,15 @@
 > でも上書きできる（env var > training.yaml > 既定）。本番（AWS の learner）も既定でカリキュラム ON。
 
 学習中：
-- `output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` が **`checkpoint_every`（既定 50000）ステップ間隔**で定期保存される。
-  先頭の日時（`run_ts`）は同一 run の全 checkpoint で共通。ファイル名のステップ数は全ステージ通算の連続値。`configs/training.yaml` の `sac.checkpoint_every` で間隔変更可。
-  `--target-stage`（既定 4）卒業時に追加で明示的 checkpoint も保存（最終モデル相当、`sac_final.zip` は廃止）。
+- **通常は `fresh/` に卒業プリセット 1 本**（`sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip`）が生成される。
+  `--target-stage`（既定 4）卒業時に明示保存されるモデルで、これが最終モデル（`sac_final.zip` は廃止）。
+- 定期 checkpoint も **`checkpoint_every`（既定 50000）ステップ間隔**で保存される仕組みだが、
+  卒業が 50,000 step 未満で起きると**一度も発火しない**ため、実際には**卒業プリセット 1 本だけ**になることが多い。
+  卒業まで 50k step を超える長い run では途中 checkpoint も併せて残る。
+  先頭の日時（`run_ts`）は同一 run で共通。間隔は `configs/training.yaml` の `sac.checkpoint_every` で変更可。
 - `output/training/tb/` に TensorBoard ログが書かれる
 - `output/training/replay_buffer.pkl`（長期記憶）と `output/training/resume_state.json` が**毎回**保存される（次回 `--resume` で利用）
-- **前回の学習の `fresh/` が残っている場合**: 学習開始時に自動で `played/` へ退避してから新しい checkpoint を `fresh/` に生成する
+- **前回の学習の `fresh/` が残っている場合**: 学習開始時に自動で `played/` へ退避してから新しいモデルを `fresh/` に生成する
 
 #### 前回の学習を引き継ぐ（--resume）
 
@@ -134,104 +135,74 @@
 
 サーバ未起動なので「**サーバとの通信を試行中**...」と表示される。
 
-### Step 3: チェックポイントを比較
+### Step 3: モデルを再生
 
-[`tools/demo_checkpoints.ps1`](../tools/demo_checkpoints.ps1) を使う。
+[`tools/demo_checkpoints.ps1`](../tools/demo_checkpoints.ps1) を使うと、`fresh/` にあるモデルを
+一覧表示して選択再生できる（1 本しかない場合はそれを選ぶだけ）。
 
 > **デモは常に最終ステージ（全形状）でモデルを動かす**（`ai_server` 既定）。`--model` 無指定なら
-> `fresh/` または `played/` の最大ステップ checkpoint を自動選択。Stage 1 しか学習していない
-> checkpoint を最終ステージの世界（円柱あり）で再生すると当然うまく積めない点に注意。特定ステージの
+> `fresh/` または `played/` の最大ステップ checkpoint を自動選択。特定ステージの
 > 世界で見たいなら `ai_server --stage N` を使う。
 >
 > **散布ブロックゼロになったら自動で仕切り直す**: 全ブロックを積み切る（または物理破綻で拾える
 > 散布ブロックが無くなる）と、`ai_server` は**全ブロックを再ランダム配置**してラウンドを再開する
-> （body_id は保持するので配信は途切れない）。MVP では演出なし（将来リセット演出を入れる余地あり）。
-
-#### 対話モード（一つ選んで再生）
+> （body_id は保持するので配信は途切れない）。
 
 ```powershell
 tools\demo_checkpoints.ps1
 ```
 
-出力例（`checkpoint_every=50000` で Stage 4 が ~200k step で卒業した場合）：
+出力例（Stage 4 卒業プリセット 1 本の場合）：
 
 ```
-発見された checkpoint (5 件):
-  0: 20260713-100000 / 50000 steps   (sac_20260713-100000_50000_steps.zip)
-  1: 20260713-100000 / 100000 steps  (sac_20260713-100000_100000_steps.zip)
-  2: 20260713-100000 / 150000 steps  (sac_20260713-100000_150000_steps.zip)
-  3: 20260713-100000 / 198000 steps  (sac_20260713-100000_198000_steps.zip)   ← Stage 4 卒業プリセット
+発見された checkpoint (1 件):
+  0: 20260713-100000 / 198000 steps  (sac_20260713-100000_198000_steps.zip)
 
 番号を入力 (例: 0)、'all' で全部、'q' で終了
 > 0
-=== 20260713-100000 / 50000 steps (sac_20260713-100000_50000_steps.zip) ===
+=== 20260713-100000 / 198000 steps (sac_20260713-100000_198000_steps.zip) ===
   ai_server PID 12345、 60 秒間再生...
 ```
 
-> checkpoint 数は `checkpoint_every`（既定 50,000）と卒業タイミングに依存する。
-> `--target-stage 4` で Stage 4 が 200k〜400k step で卒業する場合、4〜8 本 + 卒業プリセット 1 本が `fresh/` に生成される。
+`ai_server` を直接起動してもよい（`--model` 無指定で `fresh/` / `played/` の最大ステップを自動選択）：
+
+```powershell
+.venv\Scripts\python.exe -m block_stacker.serving.ai_server --host 127.0.0.1
+```
+
+`played/` に退避済みのモデルを再生したいときは
+`demo_checkpoints.ps1 -CheckpointsDir output\training\played` を使う。
 
 → Godot 画面で AI の動きを観察できる。
 
-#### Auto モード（全部順番に）
-
-```powershell
-tools\demo_checkpoints.ps1 -Mode auto -Seconds 30
-```
-
-20 個の checkpoint を各 30 秒ずつ自動で順番再生。**約 10 分かけて AI の成長を一気に見られる**。
-
-#### ローカル成長1巡再生（local_loop.ps1）
-
-`fresh/` の checkpoint を古い→新しい順に1巡再生し、最後のモデルが終わったら**自動終了**する（ループなし）。
-
-```powershell
-# fresh/ を 60 秒ずつ1巡して終了
-tools\local_loop.ps1
-
-# 30 秒ごとに切り替えて1巡
-tools\local_loop.ps1 -SwitchSeconds 30
-
-# played/ を指定（先の学習分を観察したいとき）
-tools\local_loop.ps1 -Dir output\training\played
-```
-
-`played/` を直接選んで再生したいときは `demo_checkpoints.ps1 -CheckpointsDir output\training\played` も使える。
-
 ### Step 4: 観察する
 
-| timestep | 期待される挙動 | コンセプトメタファー |
-|---------|------------|----------------|
-| 5,000 | 完全ランダム、ブロックを宙に投げて落下 | 「赤ちゃんが触る」 |
-| 25,000 | ブロックを掴むようになる、置き場所が雑 | 「2 歳児: 手は動くがズレる」 |
-| 50,000 | 1〜2 段は積める、たまに崩す | 「3 歳児: 上に乗せられる」 |
-| 100,000 | 安定して 2〜3 段、迷い動作減少 | 「4 歳児: コツを掴み始める」 |
-| 250,000 | 3〜5 段、形状を選んで積む | 「子供: 楽しく上手に積める」 |
-| 500,000+ | 円柱を最後に乗せる、安定タワー | 「コツを掴んだ子供」 |
+再生中に見るポイント：
 
-具体的な動作目安：
+| 観察ポイント | 学習が足りないとき | 学習が進んだとき |
+|----------|------|------|
+| ブロックを掴むか | 失敗が多い | ほぼ成功 |
+| タワーの近くに置くか | 関係ない場所に置く | 真上に置く |
+| タワー崩落 | 頻繁 | ほぼなし |
+| 形状選択 | ランダム | 安定する形状を優先 |
 
-| 観察ポイント | 早期 | 中期 | 後期 |
-|----------|------|------|------|
-| ブロックを掴むか | 失敗多 | ほぼ成功 | 成功 |
-| タワーの近くに置くか | 関係ない場所 | 近づく | 真上に置く |
-| タワー崩落 | 頻繁 | たまに | ほぼなし |
-| 形状選択 | ランダム | 安定形状を選ぶ | 平面ブロック優先 |
+Stage 1 しか学習していないモデルを最終ステージの世界（円柱あり）で再生すると当然うまく積めない。
+`--target-stage 4`（既定）以上まで学習したモデルで確認すること。
 
 ## ヘルパースクリプトの引数
 
-### `tools\demo_checkpoints.ps1`（手動 checkpoint 比較用）
+### `tools\demo_checkpoints.ps1`（モデルを選んで再生）
 
 | パラメータ | デフォルト | 説明 |
 |----------|---------|------|
 | `-CheckpointsDir` | `output\training\fresh` | checkpoint ディレクトリ（fresh/ または played/ を指定） |
 | `-Seconds` | 60 | 各 checkpoint の再生時間（秒）|
-| `-Mode` | `interactive` | `interactive` (一つ選ぶ) または `auto` (全部順番) |
+| `-Mode` | `interactive` | `interactive` (一つ選ぶ) または `auto` (見つかった順に全部) |
 | `-Python` | `.venv\Scripts\python.exe` | Python 実行パス |
 | `-Godot` | `D:\Godot_...\Godot_...exe` | Godot 実行パス |
 | `-LaunchGodot` | (未指定なら手動) | このフラグで Godot を自動起動 |
 
-### `tools\local_loop.ps1`（ローカル成長1巡再生）
+### `tools\local_loop.ps1`（`fresh/` を1巡再生して終了）
 
 | パラメータ | デフォルト | 説明 |
 |----------|---------|------|
@@ -287,27 +258,28 @@ tools\local_loop.ps1 -Dir output\training\played
 | `ai_server が起動直後に終了` | モデルファイル破損 / 観測形状ミスマッチ。`configs/training.yaml` を変えていないか確認 |
 | Godot で AI が動かない | サーバ側ターミナルで "client connected" ログが出ているか |
 | 切替時に AI 表示が一瞬止まる | 正常。WsClient が 2 秒以内に再接続するのを待つだけ |
-| 各 checkpoint で全く違う動き | 学習途中の SAC は不安定な時期がある（特に 5k〜30k）。後期 checkpoint に進むと安定する |
+| 途中 checkpoint で全く違う動き | 学習途中の SAC は不安定な時期がある。卒業プリセット（最大ステップ）で確認する |
 
 ## 学習時間の見積もり
 
 i7-10750H (6 物理コア, n_envs=4) 想定。**`total_timesteps` は安全上限（タイムアウト）で、
 `--target-stage 4`（既定）で Stage 4 卒業時に自動終了する**。
 
-| 用途 | 推奨コマンド例 | 目安時間 | checkpoint 数 |
+| 用途 | 推奨コマンド例 | 目安時間 | 出力モデル数 |
 |---|---|---|---|
 | 煙テスト（動作確認のみ） | `--no-curriculum --total-timesteps 500` | 数秒 | 0 |
-| **Stage 4 卒業プリセット生成（既定）** | `--n-envs 4 --total-timesteps 2000000` | **ローカル: 数時間〜丸一日** | 卒業step÷50k 本 + 1 本（卒業プリセット） |
+| **Stage 4 卒業プリセット生成（既定）** | `--n-envs 4 --total-timesteps 2000000` | **ローカル: 数時間〜丸一日** | 通常 1 本（卒業プリセット） |
 | Stage 5 完走（全形状） | `--n-envs 4 --total-timesteps 5000000 --target-stage 5` | ローカル: 1〜数日 | 同上 |
 
 → AWS **c6a.4xlarge**（n_envs=8）では Stage 4 が **1〜2h** で到達。ローカルは PyBullet
 `settle_duration=2s` が律速（3 steps/sec 程度）のため長時間かかる。
-checkpoint 数の目安: Stage 4 が 200k〜400k step で卒業する場合、4〜8 本 + 卒業プリセット 1 本。
+出力は通常「卒業プリセット 1 本」。卒業までに 50,000 step を超えた場合のみ、
+`checkpoint_every` 間隔の途中 checkpoint が加わる。
 
 ## クラウド学習との関係
 
 このローカル workflow は「**試運転**」用。本番学習は AWS の learner EC2 が
-隔週土曜 14-22 に走り、モデルを S3 に保存する。
+隔週土曜 14-22（**暫定・調整中**）に走り、モデルを S3 に保存する。
 
 ローカルで作ったモデルを AWS のデモ側で再生したい場合は S3 にアップ：
 
@@ -324,15 +296,18 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 
 ## 日次配信モード（fresh/played 方式）
 
-学習で生成した checkpoint を `fresh/` に蓄積し、**`advance_day.ps1` を毎日呼ぶだけで
+学習で生成したモデルを `fresh/` に蓄積し、**`advance_day.ps1` を毎日呼ぶだけで
 古い→新しい順に自動ステップアップ**して配信する。
 
 ```
-学習後           → fresh/ に sac_<run_ts>_<steps>_steps.zip が checkpoint_every 間隔＋卒業プリセット 1 本で生成
+学習後           → fresh/ に sac_<run_ts>_<steps>_steps.zip（通常は卒業プリセット 1 本）が生成
 advance_day.ps1  → fresh/ の最古モデルで ai_server を起動
                    （前日モデルを played/ へ退避 → 次の最古モデルへ切替）
 fresh/ が空になったら → played/ の最大ステップモデルを繰り返し再生
 ```
+
+> 1 回の学習で出るモデルが 1 本の場合、`fresh/` は 1 日で消費される。日ごとに切り替えたいなら
+> 学習を複数回走らせて `fresh/` に run を溜めるか、`played/` フォールバック再生に任せる。
 
 ### ツール
 
@@ -340,12 +315,12 @@ fresh/ が空になったら → played/ の最大ステップモデルを繰り
 |---|---|---|
 | `tools\advance_day.ps1` | 平日 14:00（自動） | `fresh/` 最古モデルで ai_server を（再）起動。前回モデルを `played/` へ退避 |
 | `tools\local_loop.ps1` | ローカル観察時 | `fresh/` を昇順に1巡再生して終了（`played/` 移動なし） |
-| `tools\demo_checkpoints.ps1` | 開発時の手動確認 | 一つ選んで再生または全自動 |
+| `tools\demo_checkpoints.ps1` | 開発時の手動確認 | 一覧から選んで再生 |
 
 ### セットアップ手順
 
 ```powershell
-# 1. 学習を実行（checkpoint_every=50000 間隔＋Stage 4 卒業プリセット 1 本が fresh/ に生成される）
+# 1. 学習を実行（通常は Stage 4 卒業プリセット 1 本が fresh/ に生成される）
 #    total-timesteps は安全上限（タイムアウト）。Stage 4 卒業で自動終了。
 .venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --total-timesteps 2000000
 
@@ -392,14 +367,10 @@ Get-Content output\training\advance_state.json
 ```
 output/
   training/
-    fresh/                 ← 学習直後の新しい checkpoint（advance_day が消費して played/ へ）
-      sac_20260713-100000_50000_steps.zip
-      sac_20260713-100000_100000_steps.zip
-      sac_20260713-100000_150000_steps.zip
-      sac_20260713-100000_198000_steps.zip   ← Stage 4 卒業プリセット（卒業タイミングで追加保存）
-    played/                ← advance_day.ps1 が再生後に移動した checkpoint（run ごとに共存・衝突なし）
+    fresh/                 ← 学習直後の新しいモデル（advance_day が消費して played/ へ）
+      sac_20260713-100000_198000_steps.zip   ← Stage 4 卒業プリセット（通常はこの 1 本）
+    played/                ← advance_day.ps1 が再生後に移動したモデル（run ごとに共存・衝突なし）
       sac_20260706-091500_342000_steps.zip   ← 先週の run（別 run_ts で衝突しない）
-      sac_20260713-100000_50000_steps.zip    ← 今週の 1 日目終わりに移動
       ...
     advance_state.json     ← {"model": "...", "from_fresh": true, "started_at": "...", ...}
     checkpoints/           ← 旧ディレクトリ（残っていても自動的に使わない）
