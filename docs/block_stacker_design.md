@@ -78,6 +78,8 @@
 > **設計変更履歴**:
 > - ElastiCache Redis は未使用のため撤去（実装上 import 無し、月 ¥2,460 節約）
 > - 学習を GPU (g4dn) → CPU (c6a) に変更（NN が小さく PyBullet が CPU bound なため）
+>
+> 過去仕様の一覧は [`design_change_record.md`](design_change_record.md) にまとめてある。
 
 ---
 
