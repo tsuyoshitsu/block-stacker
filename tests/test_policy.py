@@ -217,3 +217,61 @@ def test_observation_skips_nan_pose_blocks(
         env.close()
 
 
+
+def test_all_placed_rescatters_and_records_height(
+    world_cfg: WorldConfig, physics_cfg: PhysicsConfig, reward_cfg: RewardConfig
+) -> None:
+    """散布0 を達成したら「高さを記録して再配置」する。
+
+    回帰1: 以前は再配置せず、拾えるブロックが無いまま空振りが続き、
+      timeout_penalty まで課されて **完遂したエピソードが failure 扱い**になっていた。
+    回帰2: all_placed は横に広い低い構造でも成立するため、達成時のタワー高さを
+      併記しないと「本物の塔」か「レンガ積み」かを判別できない。
+    """
+    import pybullet as p
+    from block_stacker.sim.blocks import reset_pose
+
+    s = 0.05
+    env = BlockStackerEnv(
+        world_cfg=world_cfg,
+        physics_cfg=physics_cfg,
+        reward_cfg=reward_cfg,
+        max_steps=30,
+        max_blocks=8,
+        inventory_override={"cube": 8},
+        heightmap_resolution=16,
+        initial_settle_steps=60,
+        settle_steps_per_action=60,
+    )
+    try:
+        env.reset(seed=1)
+        ids = [b.body_id for b in env.blocks]
+        # レンガ積み（下段4＋上段4を半個ずらし）: 全8個が1成分になるが高さは2段分だけ。
+        for i in range(4):
+            x = -0.075 + i * s
+            reset_pose(ids[i], (x, 0.0, s / 2))
+            reset_pose(ids[4 + i], (x + s / 2, 0.0, s * 1.5))
+        env.world.step(240)
+        assert len(env._compute_tower_ids()) == len(ids), "前提: レンガ積みが1成分になる"
+
+        before = [p.getBasePositionAndOrientation(b)[0] for b in ids]
+        env.prev_tower_ids = set(ids)
+        env.steps_since_progress = 9
+
+        _, _, _, _, info = env.step(np.zeros(7, dtype=np.float32))
+
+        assert info["all_placed"] is True
+        assert info["all_placed_count"] == 1
+        # 高さが記録され、レンガ積み（2段分 ≈ 0.10m）だと判別できる。
+        assert 0.09 < info["all_placed_height"] < 0.11
+        # 全ブロックが再配置され、無進歩カウンタもリセットされる。
+        after = [p.getBasePositionAndOrientation(b)[0] for b in ids]
+        moved = sum(
+            1 for a, b in zip(before, after, strict=True)
+            if (a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 > 1e-6
+        )
+        assert moved >= len(ids) - 1, f"再配置されていない (moved={moved})"
+        assert env.steps_since_progress == 0
+        assert len(env.prev_tower_ids) < len(ids), "再配置後は散布状態に戻る"
+    finally:
+        env.close()

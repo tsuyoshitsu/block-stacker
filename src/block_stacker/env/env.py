@@ -64,6 +64,7 @@ from block_stacker.sim.blocks import (
     create_block,
     find_nearest_excluding,
     get_pose,
+    reset_pose,
 )
 from block_stacker.sim.carrier import (
     grab_block,
@@ -232,9 +233,11 @@ class BlockStackerEnv(gym.Env):
         self.steps_since_progress = 0
         self.collapse_armed = False
         self.prev_tower_ids: set[int] = set()
-        # 卒業判定①用: このエピソードで「散布0（全ブロックを積み切った）」を達成したか。
-        # True になると info["all_placed"]→GraduationCallback が即卒業（高さ条件なし）。
+        # このエピソードで「散布0（全ブロックが1つの連結成分）」を達成したか（指標用）。
+        # 達成すると _rescatter_blocks() でラウンドを仕切り直すので複数回起きうる。
         self._ever_all_placed = False
+        self._all_placed_count = 0
+        self._all_placed_height = 0.0
         self.rng = np.random.default_rng()
 
         # 短期記憶バッファ (deque で直近 N 手を保持)。reset で空にする。
@@ -268,6 +271,8 @@ class BlockStackerEnv(gym.Env):
         self.steps_since_progress = 0
         self.collapse_armed = False
         self._ever_all_placed = False
+        self._all_placed_count = 0
+        self._all_placed_height = 0.0
         # 短期記憶リセット（新しいエピソード = 新しい遊び）
         self._stm_actions.clear()
         self._stm_rewards.clear()
@@ -341,9 +346,11 @@ class BlockStackerEnv(gym.Env):
                 terminated = True
                 event_type = EVENT_COLLAPSE  # 崩落は最優先
 
-            # 散布0（全ブロックがタワー所属）を達成したか記録（info["all_placed"]＝即卒業①）。
+            # 散布0（全ブロックが1つの連結成分に入った）を記録し、ラウンドを仕切り直す。
             if len(self.blocks) == len(new_tower_ids):
-                self._ever_all_placed = True
+                self._note_all_placed(height_after)
+                self._rescatter_blocks()
+                new_tower_ids = self.prev_tower_ids
 
             # Refresh the tower membership snapshot for the next step.
             self.prev_tower_ids = new_tower_ids
@@ -352,13 +359,16 @@ class BlockStackerEnv(gym.Env):
             #   (a) 本当に全ブロックがタワー所属（散布0）
             #   (b) NaN/暴走座標で全ブロックを見落とした、または prev_tower_ids が陳腐化して
             #       いた（崩れて落ちたブロックがまだ除外集合に残る）だけ
-            # の2通りがある。(b) を散布0 と誤判定すると物理破綻時に低い高さのまま即卒業して
-            # しまうため、現在のタワーを再計算して「全ブロックが所属」を positive 確認する。
+            # の2通りがある。(b) を散布0 と誤判定すると物理破綻時に低い高さのまま
+            # 「達成」扱いしてしまうため、現在のタワーを再計算して positive 確認する。
             self.world.step(30)
             self.steps_since_progress += 1
             new_tower_ids = self._compute_tower_ids()
             if len(self.blocks) == len(new_tower_ids):
-                self._ever_all_placed = True
+                # (a) 本物の散布0。記録して再配置し、続きを遊ばせる。
+                self._note_all_placed(tower_height(new_tower_ids))
+                self._rescatter_blocks()
+                new_tower_ids = self.prev_tower_ids
             self.prev_tower_ids = new_tower_ids
 
         self.step_count += 1
@@ -385,11 +395,17 @@ class BlockStackerEnv(gym.Env):
         # 行動前（直前）のタワー高さ。WeightedReplayBuffer の高さ補正で使う:
         # 高いタワーで起きた経験ほど「強い記憶」に底上げする。
         info["height_before"] = height_before
-        # 卒業カリキュラム用の 2 シグナル:
-        #   is_success = 「目標高さ到達」のみ（成功率の対象。直近 window の成功率で卒業）。
-        #   all_placed = 「散布0（全ブロックを積み切った）」（達成したら即卒業の fast-track）。
+        # カリキュラム指標（進行には影響しない。記録専用）:
+        #   is_success        = 「目標高さ到達」＝高さ指標。
+        #   all_placed        = 「全ブロックが1つの連結成分」＝高さ非依存の構造指標。
+        #   all_placed_count  = そのエピソード内での達成回数（達成ごとに再配置して継続する）。
+        #   all_placed_height = 達成時のタワー高さの最大値。
+        #     **all_placed だけでは本物の塔かレンガ積みかを判別できない**ため必ず併読する
+        #     （8 個のレンガ積み・高さ 0.100m でも all_placed は成立する）。
         info["is_success"] = bool(self.tower_best_height >= self.target_height)
         info["all_placed"] = self._ever_all_placed
+        info["all_placed_count"] = self._all_placed_count
+        info["all_placed_height"] = self._all_placed_height
         return self._get_obs(), reward, terminated, truncated, info
 
     def close(self) -> None:
@@ -402,41 +418,16 @@ class BlockStackerEnv(gym.Env):
     def _scatter_blocks(self) -> list[Block]:
         """Spawn blocks per `initial_scatter` config: rejection-sample for spacing
         and keep a central exclusion radius free."""
-        cfg = self.world_cfg.initial_scatter
-        min_dist = cfg.min_inter_block_distance
-        exclude_r = cfg.exclude_radius_from_center
-        x_min, x_max = self.world_cfg.x_range
-        y_min, y_max = self.world_cfg.y_range
-        wall_margin = 0.05  # avoid touching walls
-
         blocks: list[Block] = []
         placed_xy: list[tuple[float, float]] = []
-        exclude_r_sq = exclude_r * exclude_r
-        min_dist_sq = min_dist * min_dist
 
         for shape_name, count in self.inventory.items():
             if shape_name not in self.world_cfg.shapes:
                 continue
             shape = self.world_cfg.shapes[shape_name]
             for _ in range(count):
-                x, y = 0.0, 0.0
-                for _ in range(200):
-                    x = float(self.rng.uniform(x_min + wall_margin, x_max - wall_margin))
-                    y = float(self.rng.uniform(y_min + wall_margin, y_max - wall_margin))
-                    if (x * x + y * y) < exclude_r_sq:
-                        continue
-                    too_close = any(
-                        (x - px) ** 2 + (y - py) ** 2 < min_dist_sq
-                        for px, py in placed_xy
-                    )
-                    if too_close:
-                        continue
-                    break
-                if cfg.random_yaw:
-                    yaw = float(self.rng.uniform(-math.pi, math.pi))
-                else:
-                    yaw = 0.0
-                quat = (0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2))
+                x, y = self._sample_scatter_xy(placed_xy)
+                quat = self._random_yaw_quat()
                 z0 = self._spawn_height(shape) + 0.02
                 block = create_block(
                     shape, (x, y, z0), orientation_quat=quat, physics=self.physics_cfg,
@@ -444,6 +435,70 @@ class BlockStackerEnv(gym.Env):
                 blocks.append(block)
                 placed_xy.append((x, y))
         return blocks
+
+    def _note_all_placed(self, height_at_completion: float) -> None:
+        """散布0 の達成を記録する（回数と、その時のタワー高さ）。
+
+        高さを併記するのが重要。`find_tower_blocks` が返すのは「縦接触で連結された成分」
+        であって「高い塔」ではないため、**横に広い低い構造でも散布0 は成立する**
+        （8 個のレンガ積みで高さ 0.100m でも成立することを実測確認済み）。
+        高さを見れば「本物の塔か、低く広がった構造か」を後から判別できる。
+        """
+        self._ever_all_placed = True
+        self._all_placed_count += 1
+        # 1 エピソードで複数回起きうるので、最も高かった時の値を残す。
+        self._all_placed_height = max(self._all_placed_height, float(height_at_completion))
+
+    def _sample_scatter_xy(
+        self, placed_xy: list[tuple[float, float]]
+    ) -> tuple[float, float]:
+        """散布 xy を rejection sampling で 1 つ返す（中心除外＋最小間隔）。"""
+        cfg = self.world_cfg.initial_scatter
+        x_min, x_max = self.world_cfg.x_range
+        y_min, y_max = self.world_cfg.y_range
+        wall_margin = 0.05  # avoid touching walls
+        exclude_r_sq = cfg.exclude_radius_from_center ** 2
+        min_dist_sq = cfg.min_inter_block_distance ** 2
+
+        x, y = 0.0, 0.0
+        for _ in range(200):
+            x = float(self.rng.uniform(x_min + wall_margin, x_max - wall_margin))
+            y = float(self.rng.uniform(y_min + wall_margin, y_max - wall_margin))
+            if (x * x + y * y) < exclude_r_sq:
+                continue
+            if any((x - px) ** 2 + (y - py) ** 2 < min_dist_sq for px, py in placed_xy):
+                continue
+            break
+        return x, y
+
+    def _random_yaw_quat(self) -> tuple[float, float, float, float]:
+        if not self.world_cfg.initial_scatter.random_yaw:
+            return (0.0, 0.0, 0.0, 1.0)
+        yaw = float(self.rng.uniform(-math.pi, math.pi))
+        return (0.0, 0.0, math.sin(yaw / 2), math.cos(yaw / 2))
+
+    def _rescatter_blocks(self) -> None:
+        """全ブロックを新しいランダム位置へ再配置してラウンドを仕切り直す。
+
+        散布0（全部積み切った）を達成した時に呼ぶ。body_id は保持し、姿勢と速度だけ戻す。
+        ai_server の rescatter_blocks（デモ側）と同じ挙動を学習側にも用意したもの。
+
+        これが無いと、全部積み切った後は拾えるブロックが無いまま空振りが続き、
+        time_penalty を払い続けた末に「進歩なし truncate」で timeout_penalty まで課され、
+        **課題を完遂したエピソードが failure として記録される**（強い負の記憶になる）。
+        """
+        assert self.world is not None
+        placed_xy: list[tuple[float, float]] = []
+        for block in self.blocks:
+            x, y = self._sample_scatter_xy(placed_xy)
+            z0 = self._spawn_height(block.shape) + 0.02
+            reset_pose(block.body_id, (x, y, z0), self._random_yaw_quat())
+            placed_xy.append((x, y))
+        # 落下・接触を落ち着かせてからタワー判定をやり直す。
+        self.world.step(self.initial_settle_steps)
+        self.prev_tower_ids = self._compute_tower_ids()
+        # 新しいラウンドなので無進歩カウンタは戻す（空振り扱いさせない）。
+        self.steps_since_progress = 0
 
     def _spawn_height(self, shape: ShapeSpec) -> float:
         """Spawn 時に block の centroid を地面からどれだけ上げるか（local 底面 → 0）。"""

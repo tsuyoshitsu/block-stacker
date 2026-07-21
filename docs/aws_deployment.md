@@ -80,7 +80,7 @@
    │   ┌────────────────────────────────┐             │
    │   │ 学習 EC2 c6a.4xlarge Spot       │             │
    │   │   - SAC 訓練 (Docker)           │             │
-   │   │   - checkpoint_every 間隔で S3 へ checkpoint │
+   │   │   - 全ステージ走破後にプリセットを S3 へ  │
    │   └────────────────────────────────┘             │
    │                                                  │
    │   ┌──────────────────────────────────────────┐  │
@@ -263,26 +263,28 @@ cd C:\Users\iii03\block-stacker\lambda
 [10] spot interrupt 監視 systemd service を常駐
 ```
 
-**学習 EC2 (`learner.sh`)** も同様の流れで、`docker run ... training.train` が走り、`checkpoint_every`（既定 50000 steps）間隔で S3 に checkpoint を書き戻します。
+**学習 EC2 (`learner.sh`)** も同様の流れで、`docker run ... training.train` が走り、全ステージ走破後にプリセット 1 本を S3 に書き戻します。
 
 > **オートカリキュラム（既定で有効）**: カリキュラムは `training.train` の**デフォルト ON**
-> （`Dockerfile.learner` の `CMD` でも明示）。Stage 1→4 を自動進行する（`--target-stage 4` 既定。`--target-stage 5` で Stage 5 まで進む）。`--total-timesteps`=1M は
-> **全ステージ合計の上限（グローバル予算）**で、**総手数は必ず 1M 以下**＝起動時間・コストが見積もれる。
-> 各ステージは **散布0で即卒業**または**目標高さ到達の成功率 0.6**で卒業し、早く卒業した残りは次へ回る。
-> 使い切ったら中断。成果は `fresh/sac_*_steps.zip` を `checkpoint_every`（既定 50000 steps）間隔で S3 に保存（`sac_final.zip` は廃止）。
+> （`Dockerfile.learner` の `CMD` でも明示）。Stage 1→4 を**固定ステップ制**で進行する
+> （`--target-stage 4` 既定＝走るステージの上限。`--target-stage 5` で Stage 5 まで）。
+> **卒業判定は無い**ので、各ステージは `stages[].steps` の予算どおり走って次へ進む。
+> 総手数はステージ予算の合計で決まる（既定 Stage 1-4 で 180,000）＝起動時間・コストが見積もれる。
+> 予算は `--stage-steps`（一括 or ステージ別）で上書き可。
+> 成果は全ステージ走破後の `fresh/sac_*_steps.zip` **1 本**を S3 に保存する（`sac_final.zip` は廃止）。
 > Stage 1 のみに戻すなら `CMD` に `--no-curriculum` を渡す（既定 ON なので `--curriculum` を外すだけでは無効化されない）。
 > **デモ EC2 の `live_server` は常に最終ステージ（全形状）で配信しながらバックグラウンド学習**。既定モデルは
 > `fresh/` / `played/` の最大ステップ checkpoint を自動選択する。
 >
-> **卒業条件はコンテナ環境変数で上書き可**（優先順位: env var > training.yaml > 既定）。
+> **コンテナ環境変数で上書き可**（優先順位: env var > training.yaml > 既定）。
 > ECS タスク定義 / `docker run -e` で渡す：
 > | 環境変数 | 意味 | 既定 |
 > |---|---|---|
-> | `BS_GRADUATION_RATIO` | 目標高さ = 在庫満積み高さ × ratio | 0.6 |
-> | `BS_GRADUATION_THRESHOLD` | 「目標高さ到達」の卒業成功率（散布0は別途・即卒業） | 0.6 |
-> | `BS_GRADUATION_WINDOW` | 成功率を見る直近エピソード数 | 30 |
+> | `BS_GRADUATION_RATIO` | 目標高さ = 在庫満積み高さ × ratio（`is_success` 判定に使用） | 0.6 |
+> | `BS_GRADUATION_WINDOW` | 指標（success_rate / all_placed_rate）の移動平均幅 | 30 |
+> | `BS_GRADUATION_THRESHOLD` | **未使用**（卒業判定の撤去に伴い残置のみ） | 0.6 |
 >
-> 例: `docker run -e BS_GRADUATION_RATIO=0.7 -e BS_GRADUATION_THRESHOLD=0.8 ... block-stacker/learner`
+> 例: `docker run -e BS_GRADUATION_RATIO=0.7 ... block-stacker/learner`
 
 **Endpoint 依存度:**
 - `ecr.api` Endpoint → step [4] で必須
@@ -822,8 +824,9 @@ WsClient.cs が ReadPoseTransform で Godot Y-up に変換: (x, y, z) → (x, z,
 
 ### F.1 記憶バッファの永続化（save_replay_buffer / load_replay_buffer）
 
-> **✅ ローカル学習では実装済み**（`training/train.py` の `--resume` 機能）。学習完了時に
-> `output/training/replay_buffer.pkl` と `resume_state.json` が保存され、次回 `--resume` で復元。
+> **✅ ローカルでは実装済み**（live_server のスナップショット引き継ぎ）。学習完了時に
+> `output/training/replay_buffer.pkl` と `resume_state.json` が保存され、live_server 起動時に復元。
+> train 側の `--resume` は一度実装後に廃止（学習 run は毎回ゼロから）。
 > AWS 側への S3 自動アップロード（learner.sh への追加）は未実装（残 TODO）。
 
 **何ができるか:** 長期記憶（WeightedReplayBuffer）の中身を pickle で S3 に保存し、
@@ -1026,12 +1029,12 @@ memory_system:
 
 ```powershell
 # 6 物理コアの PC を想定（i7-10750H 等）
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --total-timesteps 2000000 --target-stage 4
+.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6 --target-stage 4
 ```
 
 - `--n-envs 6`: 物理コア数に合わせる（クラウドは 8、ローカルは 4〜6）
-- `--total-timesteps 2000000`: **安全上限（タイムアウト）**。`--target-stage 4` 卒業で早期終了するため実際の手数はこれより少ない
-- `output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` が `checkpoint_every`（既定 50000 steps）間隔で保存（ステージ番号はファイル名に含まれない。`sac_final.zip` は廃止）
+- `--target-stage 4`: 走るステージの上限（既定）。総手数は `stages[].steps` の合計＝既定 180,000。`--stage-steps` で上書き可
+- `output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` が全ステージ走破後に **1 本**保存される（ステージ番号はファイル名に含まれない。`sac_final.zip` は廃止）
 
 ### G.2 TensorBoard で学習曲線を見る（別ターミナル）
 

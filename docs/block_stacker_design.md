@@ -29,7 +29,7 @@
 │ 学習 EC2 (c6a.4xlarge, AMD CPU)      │
 │ - SAC + 重みつきリプレイバッファ      │
 │ - SubprocVecEnv 8 並列 collect       │
-│ - checkpoint_every（既定 50000 steps）間隔＋卒業時に S3 へ checkpoint │
+│ - 全ステージ走破後にプリセットを S3 へ保存        │
 └──────────────┬──────────────────────┘
                │ PUT
                ▼
@@ -72,7 +72,7 @@
 
 ### モデル共有フロー
 
-1. 学習側: `checkpoint_every`（既定 50000 steps）間隔＋卒業時に `s3://bucket/models/` へ checkpoint sync
+1. 学習側: 全ステージ走破後のプリセット 1 本を `s3://bucket/models/` へ sync
 2. デモ側: 起動時に S3 から最新モデルを取り込み、live_server で配信（バックグラウンド学習込み）
 
 > **設計変更履歴**:
@@ -199,25 +199,27 @@ observation = {
 | 4 | `success` | placement 成功（記録未更新）※報酬は「置いた高さ」で補正（§報酬） | 0.3 |
 | 5 | `no_progress` | 上記いずれにも該当しない | 0.1 |
 
-#### 学習の引き継ぎ（--resume）
+#### 学習状態の引き継ぎ（live_server のスナップショット）
 
-`--resume` フラグで前回の学習状態を引き継いで続きから学習できる。引き継ぐのは **勘** と **長期記憶**
-の 2 層のみ。短期記憶（recent_* deque）は `env.reset()` で自動クリアされるため何もしない（設計通り）。
+**train.py の `--resume` は廃止した**（学習 run は毎回ゼロから走り切る前提）。
+引き継ぎが残るのは live_server のスナップショット機構のみ:
 
 | 引き継ぐもの | 方法 | 減衰 |
 |------|------|------|
-| **勘（NN重み）** | `find_latest_checkpoint` で最新 run の最大ステップ checkpoint を選択し `SAC.load()` | そのまま（無加工） |
-| **長期記憶（リプレイバッファ）** | `replay_buffer.pkl` から `load_replay_buffer()` | 経過日数 × `steps_per_day` だけ `global_step` を加算し、全記憶の age を増やして重みを一律減衰 |
+| **勘（NN重み）** | `find_latest_checkpoint` で最新 run のモデルを `SAC.load()` | そのまま（無加工） |
+| **長期記憶（リプレイバッファ）** | `replay_buffer.pkl` から復元 | 経過日数 × `steps_per_day` だけ `global_step` を加算し、全記憶の重みを一律減衰 |
+
+短期記憶（recent_* deque）はセッション境界でクリアされる（設計通り）。
 
 **減衰の仕組み（Method A）**: `replay_buffer.global_step += elapsed_steps` で
 全スロットの `age = global_step - birth_steps` が同時に増加し、現在重み = `initial_w × decay_rate^age`
 が一斉に古くなる。強い記憶（`collapse` 初期重み 1.0）は弱い記憶（`no_progress` 0.1）
 より長く生き残る（`weight_floor` が下限）。
 
-学習完了時に `replay_buffer.pkl` と `resume_state.json` が `output/training/` に**毎回**保存される。
-`resume_state.json` には `num_timesteps`, `next_stage_id`, `completed_stages`, `timestamp` が記録される。
+train.py は学習完了時に `replay_buffer.pkl` と `resume_state.json` を `output/training/` に保存する。
+live_server が次回起動時にこれを読み、`timestamp` から経過日数を算出して減衰を適用する。
 
-設定（`configs/training.yaml` の `resume:` セクション）:
+設定（`configs/training.yaml` の `resume:` セクション。**読むのは live_server のみ**）:
 
 | キー | 既定 | 説明 |
 |-----|------|------|
@@ -348,44 +350,51 @@ reward       += place_success × height_factor
 
 > 設計変更履歴: 旧版は cylinder → triangular_prism だったが、円柱の方が難しいため逆転。
 
-#### Stage 卒業条件
+#### Stage 進行（固定ステップ制。**卒業判定は無い**）
+
+各ステージは決められたステップ数だけ走り、**成績によらず**次のステージへ進む。
 
 ```yaml
+stages:
+  - id: 1
+    steps: 60000              # このステージで走る env ステップ数
+    ...
 graduation:
-  rule: "success_rate"
-  window: 30                  # 成功率を見る直近エピソード数
-  threshold: 0.6              # この成功率で卒業
-  ratio: 0.6                  # 目標高さ = 在庫満積み高さ × ratio
+  window: 30                  # 指標（success_rate / all_placed_rate）の移動平均幅
+  threshold: 0.6              # 未使用（卒業判定の撤去に伴い残置のみ）
+  ratio: 0.6                  # 目標高さ = 在庫満積み高さ × ratio（is_success の判定に使う）
 demotion_enabled: false       # Stage ダウンなし、一方向のみ進行
 ```
 
-`window` / `threshold` / `ratio` は**コンテナ環境変数**でも上書きできる（優先順位:
+予算は CLI で上書きできる。`--stage-steps 100000`（全ステージ一括）、
+`--stage-steps 60000,35000,40000`（実行ステージへ順に割当。要素数不一致はエラー）。
+
+`window` / `ratio` は**コンテナ環境変数**でも上書きできる（優先順位:
 env var > training.yaml > 既定）。本番（Docker/ECS）で `-e BS_GRADUATION_RATIO=0.7` 等。
 詳細は[`docs/aws_deployment.md`](aws_deployment.md) のデプロイ節。
 
-#### 卒業の判定（実装）
+#### 指標（進行には影響しない記録専用）
 
-卒業は次のどちらか（**OR**）：
-
-1. **散布0で即卒業**（fast-track）: あるエピソードで散布0（全ブロックを縦タワーに積み切った）を
-   達成したら、成功率を待たず**その瞬間に卒業**。env が `info["all_placed"]` を出し、True を見たら即卒業。
-2. **目標高さ到達の成功率で卒業**: 「目標高さ到達」の成功率が直近 `window` で `threshold`（既定 0.6）
-   以上 → 卒業。env が `info["is_success"]` を出し、`GraduationCallback` が done ごとに集計。
+`StageMonitorCallback` が TensorBoard に出す。**次回のステップ数配分を決める材料**。
 
 ```
-is_success = tower_best_height >= 目標高さ   # 成功率の対象（②）。散布0 は含めない
-all_placed = 散布0 を達成                     # 即卒業のトリガー（①）
+is_success = tower_best_height >= 目標高さ   # 高さ指標  → curriculum/success_rate
+all_placed = 全ブロックが1つの連結成分        # 高さ非依存 → curriculum/all_placed_rate
+                                              #             curriculum/all_placed_total
 目標高さ   = 在庫満積み高さ × ratio
 ```
 
-> タワー判定が縦連結のみなので、平たく寄せ集めた塊は「散布0」にも「目標高さ」にもならず成功しない
-> （下記「タワーの定義」参照）。`stable_duration` の継続判定は未実装。
+> **`all_placed` は「高く積めた」ではなく「作品が1つにまとまった」を意味する。**
+> `find_tower_blocks` が返すのは「縦接触で連結された成分」であり、連結成分は横に広がっても
+> 成立する。実測では 8 個をレンガ積みにした高さ 0.100m の構造（目標 0.240m）でも
+> `len(blocks) == len(tower)` が真になる。
 >
-> **散布0 検出の堅牢化**: 散布0 は「現在のタワーが全ブロックを含む」を positive 確認する
-> （`len(blocks) == len(tower)`）。`find_nearest_excluding` が None を返しただけ（＝拾える散布が
-> 無い）を散布0 とみなさない。これにより物理破綻で姿勢が NaN 化したり `prev_tower_ids` が陳腐化
-> した時に、**低い高さのまま誤って即卒業するのを防ぐ**（この取り違えが過去、最難ステージが数百手で
-> 偽卒業する原因だった）。
+> **かつてこれを「散布0＝積み切った」とみなして即卒業のトリガーにしていたため、
+> success_rate が 0 のまま Stage 1→4 が数千ステップで飛ぶ不具合が起きていた。**
+> 高さ条件が無いこと自体が原因なので、再びこれを進行条件に使わないこと。
+> 経緯と実測値は [`docs/design_change_record.md`](design_change_record.md) §1.2.1。
+
+`stable_duration` の継続判定は未実装。
 
 #### エピソードタイムアウト
 
@@ -397,15 +406,23 @@ all_placed = 散布0 を達成                     # 即卒業のトリガー（
 **実装済み**（[`training/train.py`](src/block_stacker/training/train.py) + [`training/curriculum.py`](src/block_stacker/training/curriculum.py)）。
 
 - **既定で** Stage 1→N を自動進行（`--no-curriculum` で Stage 1 のみに切替）。
-- `GraduationCallback` が成功率 ≥ `threshold` を満たすと `learn()` を早期終了し次ステージへ。
+- **進行は固定ステップ制**。各ステージは `stages[].steps`（CLI `--stage-steps` で上書き可）だけ走り、
+  成績によらず次へ進む。`StageMonitorCallback` は指標を記録するだけで `learn()` を止めない。
+  既定配分は 60k / 35k / 40k / 45k / 70k（Stage 1〜5、合計 25万。既定範囲 Stage 1-4 は 18万）。
+  U 字配分: Stage 1 はゼロから基礎を獲得する最大の山、Stage 2〜4 は転移が効くので軽く、
+  Stage 5 は円柱＝転がるという新規スキルのため再び重くする。
+  総量は実測スループット 2 steps/秒（18万 ≈ 25時間）を踏まえた値。
 - 観測空間は全ステージ共通（`max_blocks=8` 等で固定）なので、**同じ NN・記憶バッファを
   `model.set_env()` で引き継いだまま** env だけ差し替える。タイムステップ計数・TensorBoard も連続。
-- 保存: `fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` として `checkpoint_every`（既定 50000 steps）間隔で定期保存。
-  `--target-stage` 卒業時には追加で明示的 checkpoint を保存（周期と合致しない場合の補完）。`sac_final.zip` は廃止。
-- `--total-timesteps` は**安全上限（タイムアウト）**。`--target-stage`（既定 4）が卒業条件として機能し、
-  指定ステージ卒業時点で学習終了・プリセット保存。`--target-stage 9999` で旧来の budget 完走動作に戻せる。
-- **`--target-stage` 未到達で budget 枯渇した場合**: 最終ステージ卒業後に budget が残っていれば
-  `StageMonitorCallback` で継続学習（`_run_budget_continuation`）。卒業で打ち切った場合はスキップ。
+  SB3 は `reset_num_timesteps=False` のとき `total_timesteps` に `num_timesteps` を足すため、
+  `learn()` にはステージ予算をそのまま渡せばその分だけ進む。
+- 学習 env は **`Monitor` で包む**。これが無いと `rollout/ep_rew_mean` が出ず報酬曲線が消える。
+- 保存: **全ステージ走り切った時点のプリセット 1 本のみ**（`fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip`）。
+  定期 checkpoint は撤去した（`sac_final.zip` も廃止）。
+- `--total-timesteps` は**全体の安全上限**。無指定なら `sac.total_timesteps`（既定 null）→
+  ステージ予算の合計をそのまま使う。上限を超える分は後半ステージが切り詰められる。
+- `--target-stage`（既定 4）/ `--max-stage` は**最後に走るステージの上限**（厳しい方を採用）。
+  卒業判定の撤去に伴い「到達したら終了」ではなく単なる範囲指定。
 - **本番配信（[`serving/live_server.py`](src/block_stacker/serving/live_server.py)）**:
   学習（train_model）と配信（serve_model）を 1 プロセスに融合した形式。常に最終ステージ（Stage 5）で配信。
   既定モデルは `find_latest_checkpoint`（ソートキー `(run_ts, steps)` 降順の最大値）で自動選択。
@@ -763,7 +780,6 @@ sac:
   ent_coef: "auto"
   target_update_interval: 1
   log_interval: 4
-  checkpoint_every: 50000       # 絶対ステップ間隔でcheckpointを保存（total_timesteps 非依存）
   features_dim: 128
 
 # 重みつきリプレイバッファの設定
@@ -987,7 +1003,7 @@ ASG + Mixed Instances Policy + capacity-optimized で自動再起動。
 | AI | 行動空間 | 7 次元連続 |
 | AI | マニピュレーション | 階層化（上位=学習、下位=ソフト追従キャリア） |
 | AI | カリキュラム | 5 Stage、**三角柱 → 円柱の順で投入（円柱が最難）** |
-| AI | 卒業条件 | **①散布0で即卒業** または **②目標高さ到達の成功率 ≥ 60%（直近30回）**。目標 = 在庫満積み×0.6。env で上書き可 |
+| AI | ステージ進行 | **固定ステップ制**（卒業判定なし）。既定 60k/35k/40k/45k/70k（U 字配分）、`--stage-steps` で上書き可 |
 | AI | 降格 | なし |
 | AI | Stage 情報 | クライアント非公開 |
 | AI | 並列環境 | SubprocVecEnv n_envs=8（c6a.4xlarge 物理コア飽和） |

@@ -23,34 +23,36 @@ checkpoint を用意してから live_server を起動してください。
 
 ### 手順: train.py でプリセットを生成する
 
-`--target-stage 4`（既定値）を指定すると、Stage 4 を卒業した時点で自動的に学習終了＋プリセット保存されます。
+既定では Stage 1→4 を**固定ステップ制**（各ステージの予算どおり）で走り切り、
+最後にプリセットが `fresh/` に保存されます。**卒業判定は廃止されました**
+（経緯は [`docs/design_change_record.md`](design_change_record.md) §1.2.1）。
 
 ```powershell
-# ---- Stage 4 で打ち切り（既定動作）----
-# c6a.4xlarge (16vCPU, AMD) 推奨（約 1〜2h で Stage 4 に到達）
-.venv\Scripts\python.exe -m block_stacker.training.train `
-    --n-envs 8 `
-    --total-timesteps 2000000
-# total-timesteps は「Stage 4 を卒業できなかった場合の安全上限」。
-# 通常は Stage 4 卒業時に自動終了する。
+# ---- Stage 1→4（既定動作）----
+# c6a.4xlarge (16vCPU, AMD) 推奨
+.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 8
+# ステージ予算は configs/training.yaml の stages[].steps（既定 合計 180,000 = Stage 1-4、約25時間）
 
 # ---- Stage 5（全形状）まで走らせたい場合 ----
 .venv\Scripts\python.exe -m block_stacker.training.train `
     --n-envs 8 `
-    --total-timesteps 5000000 `
     --target-stage 5
+# 合計 250,000 steps（約35時間）
+
+# ---- 予算を短縮して試す ----
+.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 8 --stage-steps 100000
 
 # 生成物（いずれも同じ場所）:
-#   output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip  ← NN 重み（卒業時に追加保存）
+#   output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip  ← NN 重み（定期＋最後のプリセット）
 #   output/training/replay_buffer.pkl                               ← 長期記憶
 #   output/training/resume_state.json                               ← カリキュラム進捗
 ```
 
-`--target-stage 4`（既定）では Stage 4 卒業直後に `fresh/` へプリセットが保存され、
+既定（`--target-stage 4`）では Stage 4 まで走り切った時点で `fresh/` へプリセットが保存され、
 `resume_state.json` の `next_stage_id` が `4` になります。
 
 ```json
-// resume_state.json 例（Stage 4 卒業で打ち切った場合）
+// resume_state.json 例（既定の Stage 1→4 を走り切った場合）
 {
   "num_timesteps": 340000,
   "next_stage_id": 4,
@@ -60,7 +62,7 @@ checkpoint を用意してから live_server を起動してください。
 ```
 
 ```json
-// resume_state.json 例（--target-stage 5 で Stage 5 到達済み）
+// resume_state.json 例（--target-stage 5 で Stage 5 まで走破）
 {
   "num_timesteps": 498000,
   "next_stage_id": 5,

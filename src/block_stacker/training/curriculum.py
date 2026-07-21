@@ -6,24 +6,30 @@
 目的:
     SAC 学習を Stage 1 → 2 → … と自動で進めるための部品。
 
-卒業条件（OR、どちらかで卒業）:
-    1. 散布ブロックゼロ（全ブロックを積み切った）→ **即卒業**（成功率を待たない fast-track）。
-       env が info["all_placed"] を出し、それが True になった瞬間に卒業する。
-    2. 「目標高さ達成状態」の成功率が直近 window で threshold（既定 0.6）以上 → 卒業。
-       env が info["is_success"]（= tower_best_height >= 目標高さ）を出し、
-       GraduationCallback が done ごとに rolling window で集計する。
-       目標高さ = 在庫を全部縦積みした理論高さ × graduation.ratio。
+ステージ進行:
+    **固定ステップ数**で進む。各ステージは configs/training.yaml の
+    `curriculum.stages[].steps`（CLI の --stage-steps で上書き可）だけ走り、
+    成績によらず必ず次のステージへ進む。**卒業判定は行わない。**
+
+    かつては「散布0（all_placed）で即卒業」「成功率 threshold 超えで卒業」の
+    2 条件で進行していたが、前者が誤検出するため撤去した（詳細は
+    docs/design_change_record.md）。横に広い連結構造でも all_placed が成立し、
+    高さ 0.100m（目標 0.240m）のまま Stage 1→4 が数千ステップで飛んでいた。
+
+指標（学習を止めず記録のみ。次回のステップ数配分を決める材料）:
+    - curriculum/success_rate     直近 window の「目標高さ到達」率（info["is_success"]）
+    - curriculum/all_placed_rate  直近 window の「全ブロックが1つの連結構造」率
+    - curriculum/all_placed_total そのステージでの通算回数
+    ※ all_placed は高さを含まない指標。「高く積めた」ではなく
+      「作品が1つにまとまった」を意味する（低く横に広い構造でも成立する）。
 
 設計上のポイント:
-    - is_success は「目標高さ到達」のみ（散布0 は混ぜず、別シグナル all_placed で即卒業）。
-    - graduated=True になると _on_step() が False を返して model.learn() を早期終了
-      → train.py のループが次ステージへ進む。
     - 観測空間は全ステージ共通（max_blocks=8 等で固定）なので、同じ model を
       model.set_env() で各ステージに付け替えるだけでよい（NN もバッファも引き継ぐ）。
 
 関連:
-    - configs/training.yaml: curriculum.graduation (window / threshold / ratio)
-    - env/env.py: info["is_success"] の算出
+    - configs/training.yaml: curriculum.stages[].steps / curriculum.graduation.ratio
+    - env/env.py: info["is_success"] / info["all_placed"] の算出
     - training/train.py: ステージ進行ループ本体
 """
 from __future__ import annotations
@@ -47,9 +53,12 @@ def resolve_graduation(graduation_cfg: dict[str, Any]) -> tuple[int, float, floa
 
     優先順位: コンテナ環境変数 BS_GRADUATION_* > training.yaml の graduation > 既定値。
     本番（Docker/ECS）では `-e BS_GRADUATION_RATIO=0.7` のように env var で上書きできる。
-      - BS_GRADUATION_WINDOW    : 成功率を見る直近エピソード数（既定 30）
-      - BS_GRADUATION_THRESHOLD : 卒業する成功率（既定 0.6）
+      - BS_GRADUATION_WINDOW    : 指標の集計対象エピソード数（既定 30）
+      - BS_GRADUATION_THRESHOLD : **未使用**（卒業判定を撤去したため残置。読み替えのみ）
       - BS_GRADUATION_RATIO     : 目標高さ ＝ 在庫満積み高さ × ratio（既定 0.6）
+
+    注: 卒業判定は廃止したので threshold は進行を左右しない。window と ratio のみ有効
+    （window = 指標の移動平均幅、ratio = info["is_success"] の判定に使う目標高さ）。
     """
     win_env = os.environ.get(GRAD_ENV_WINDOW)
     thr_env = os.environ.get(GRAD_ENV_THRESHOLD)
@@ -79,18 +88,36 @@ def stage_inventory(stage: dict[str, Any], world_cfg: WorldConfig) -> dict[str, 
 
 
 class StageMonitorCallback(BaseCallback):
-    """継続学習フェーズ用モニター。卒業ロジックなしで curriculum メトリクスを記録する。
+    """ステージ指標の記録専用コールバック。**learn() を決して止めない。**
 
-    全ステージ早期卒業後の post-loop continuation で GraduationCallback の代わりに使う。
-    GraduationCallback は graduation 条件が満たされると False を返して learn() を止めるが、
-    continuation では total_timesteps まで走り続ける必要があるため、このクラスを使う。
+    卒業判定を撤去したので、進行はステージ予算（固定ステップ数）だけで決まる。
+    このコールバックは「次回どれだけステップを割り当てるか」を判断するための
+    材料を TensorBoard に残すのが役目。
+
+    記録する指標:
+        curriculum/stage              現在のステージ番号
+        curriculum/episodes_seen      このステージで完了したエピソード数
+        curriculum/success_rate       直近 window の「目標高さ到達」率
+        curriculum/all_placed_rate    直近 window の「全ブロックが1つの連結構造」率
+        curriculum/all_placed_total   このステージでの all_placed 通算回数
+        curriculum/all_placed_height  達成時のタワー高さ（直近 window の平均）
+        curriculum/tower_height_mean  直近 window のエピソード最高到達高さの平均
+
+    **all_placed だけでは「本物の塔」か「低く広がった構造」かを判別できない**。
+    連結成分は横に広がっても成立するため（8 個のレンガ積み・高さ 0.100m でも成立する
+    ことを実測確認済み）、必ず all_placed_height と併読すること。
+    例: Stage 1 なら 0.400m 付近なら本物の 8 段、0.100m 付近ならレンガ積み。
     """
 
     def __init__(self, stage_id: int | None, window: int = 30) -> None:
         super().__init__(verbose=0)
         self.stage_id = stage_id
         self.successes: deque[float] = deque(maxlen=window)
+        self.all_placed_flags: deque[float] = deque(maxlen=window)
+        self.all_placed_heights: deque[float] = deque(maxlen=window)
+        self.tower_heights: deque[float] = deque(maxlen=window)
         self.episodes_seen = 0
+        self.all_placed_total = 0
 
     @property
     def success_rate(self) -> float:
@@ -98,94 +125,56 @@ class StageMonitorCallback(BaseCallback):
             return 0.0
         return sum(self.successes) / len(self.successes)
 
-    def _on_step(self) -> bool:
-        dones = self.locals.get("dones")
-        infos = self.locals.get("infos")
-        if dones is not None and infos is not None:
-            for done, info in zip(dones, infos, strict=False):
-                if done:
-                    self.episodes_seen += 1
-                    self.successes.append(1.0 if info.get("is_success", False) else 0.0)
-        logger = getattr(self, "logger", None)
-        if logger is not None:
-            if self.stage_id is not None:
-                logger.record("curriculum/stage", self.stage_id)
-            if self.episodes_seen > 0:
-                logger.record("curriculum/success_rate", self.success_rate)
-                logger.record("curriculum/episodes_seen", self.episodes_seen)
-        return True  # 卒業ロジックなし: 決して learn() を止めない
-
-
-class GraduationCallback(BaseCallback):
-    """成功率が threshold 以上になったら卒業（learn を早期終了して次ステージへ）。
-
-    使い方:
-        cb = GraduationCallback(window=30, threshold=0.6, verbose=1)
-        model.learn(total_timesteps=budget, callback=cb, reset_num_timesteps=False)
-        if cb.graduated: 次ステージへ
-    """
-
-    def __init__(
-        self,
-        window: int = 30,
-        threshold: float = 0.6,
-        stage_id: int | None = None,
-        verbose: int = 0,
-    ) -> None:
-        super().__init__(verbose)
-        self.window = int(window)
-        self.threshold = float(threshold)
-        self.stage_id = stage_id
-        self.successes: deque[float] = deque(maxlen=self.window)
-        self.graduated = False
-        self.episodes_seen = 0
+    @property
+    def all_placed_rate(self) -> float:
+        if not self.all_placed_flags:
+            return 0.0
+        return sum(self.all_placed_flags) / len(self.all_placed_flags)
 
     @property
-    def success_rate(self) -> float:
-        if not self.successes:
+    def all_placed_height(self) -> float:
+        """散布0 を達成したエピソードの、達成時タワー高さの平均（未達成なら 0）。"""
+        if not self.all_placed_heights:
             return 0.0
-        return sum(self.successes) / len(self.successes)
+        return sum(self.all_placed_heights) / len(self.all_placed_heights)
+
+    @property
+    def tower_height_mean(self) -> float:
+        if not self.tower_heights:
+            return 0.0
+        return sum(self.tower_heights) / len(self.tower_heights)
 
     def _record(self, dones: Any, infos: Any) -> None:
-        """done になった env の is_success を集計（純粋ロジック、テスト用に分離）。"""
+        """done になった env の指標を集計（純粋ロジック、テスト用に分離）。"""
         for done, info in zip(dones, infos, strict=False):
             if not done:
                 continue
             self.episodes_seen += 1
             self.successes.append(1.0 if info.get("is_success", False) else 0.0)
-
-    def _should_graduate(self) -> bool:
-        return len(self.successes) >= self.window and self.success_rate >= self.threshold
+            self.tower_heights.append(float(info.get("tower_best_height", 0.0)))
+            placed = bool(info.get("all_placed", False))
+            self.all_placed_flags.append(1.0 if placed else 0.0)
+            if placed:
+                # エピソード内で複数回達成しうるので count 分を通算に足す。
+                self.all_placed_total += int(info.get("all_placed_count", 1))
+                self.all_placed_heights.append(float(info.get("all_placed_height", 0.0)))
 
     def _on_step(self) -> bool:
         dones = self.locals.get("dones")
         infos = self.locals.get("infos")
-
-        # ① fast-track: 散布ブロックゼロ（全部積み切った）を達成 → 成功率を待たず即卒業。
-        if infos is not None and any(info.get("all_placed", False) for info in infos):
-            self.graduated = True
-            if self.verbose:
-                print("[graduation] all blocks placed (散布0) -> GRADUATE (即卒業)")
-            return False
-
         if dones is not None and infos is not None:
             self._record(dones, infos)
         logger = getattr(self, "logger", None)
         if logger is not None:
-            # ステージ番号は毎テーブルに出す（学習中どのステージか一目で分かるように）。
             if self.stage_id is not None:
                 logger.record("curriculum/stage", self.stage_id)
             if self.episodes_seen > 0:
                 logger.record("curriculum/success_rate", self.success_rate)
                 logger.record("curriculum/episodes_seen", self.episodes_seen)
+                logger.record("curriculum/all_placed_rate", self.all_placed_rate)
+                logger.record("curriculum/all_placed_total", self.all_placed_total)
+                logger.record("curriculum/tower_height_mean", self.tower_height_mean)
+                if self.all_placed_heights:
+                    logger.record("curriculum/all_placed_height", self.all_placed_height)
+        return True  # 記録のみ: 決して learn() を止めない
 
-        # 目標高さ到達の成功率が threshold 以上で卒業。
-        if self._should_graduate():
-            self.graduated = True
-            if self.verbose:
-                print(
-                    f"[graduation] success_rate={self.success_rate:.2f} "
-                    f">= {self.threshold:.2f} over last {self.window} eps -> GRADUATE"
-                )
-            return False  # learn() を止める
-        return True

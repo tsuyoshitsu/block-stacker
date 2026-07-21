@@ -9,12 +9,11 @@ episode:
   timeout_treated_as: "failure"
 
 curriculum:
+  # 注: 卒業判定は廃止済み（進行は stages[].steps の固定ステップ制）。ここに残るのは指標用の設定。
   graduation:
     rule: "success_rate"
-    # 成功 = そのエピソードで「散布0（全ブロックを積み切った）」 OR 「目標高さ到達」のどちらか。
-    # その成功率が直近 window エピソードで threshold 以上になったら卒業。
-    window: 30
-    threshold: 0.6
+    window: 30                # 指標（success_rate / all_placed_rate）の移動平均幅
+    threshold: 0.6            # 未使用。卒業判定の撤去に伴い残置のみ
     # 目標高さ = 在庫を全部縦積みした理論高さ × ratio（在庫が増えれば目標も比例して上がる）。
     # 各ステージの静的 target_height は使わず、この ratio から動的に決まる。
     ratio: 0.6
@@ -22,8 +21,24 @@ curriculum:
   # 形状を段階的に追加していくカリキュラム。
   # 順序の根拠: 円柱は転がるので最も難しい → 4 形状中最後に投入。
   #            三角柱は平面が多く安定面が複数あるので、cuboid の次に投入。
+  #            難しさは形状（斜面・曲面）が支配的で、目標高さの大小では測れない。
   # 注: 目標高さは各ステージ固定値ではなく「在庫 × graduation.ratio」で動的に決まる
   #     （inventory_full_stack_height × ratio）。なので stage に target_height は持たない。
+  # steps: そのステージを走らせる env ステップ数（固定予算）。卒業判定は廃止したので、
+  #   ここに書いた分だけ必ず走って次のステージへ進む。合計 = 250,000（既定 Stage 1-4 は 180,000）。
+  #   CLI で上書き可: `--stage-steps 50000`（一括）/ `--stage-steps 60000,35000,...`（個別）。
+  #
+  # 総量の根拠（実測ベース。所要時間に直結するので勝手に増やさないこと）:
+  #   - このマシンの実測スループットは約 2 steps/秒（time/fps 中央値 2.0）。
+  #     180,000 steps ≈ 25 時間、250,000 steps ≈ 35 時間かかる。
+  #   - 学習シグナルは 1〜2 万ステップで現れる（success_rate が動き始める）。
+  #   - 2026-07-20 の 1/10 スケール run（25,000 steps）は発散せず完走した
+  #     （critic_loss 最大 5.11。誤卒業のあった旧 run は 2.17e15 まで発散していた）。
+  #
+  # 配分の考え方: 「そのステージで新しく学ぶこと」と「前ステージからの転移の効きやすさ」。
+  #   Stage 1 はゼロから、Stage 4/5 は斜面・曲面という質的に新しい難しさが入るので重い。
+  #   （形状の難しさが支配的で、目標高さの大小では難易度を測れない。実測で Stage 3→4 は
+  #    目標高さがほぼ同じ 0.408m→0.420m なのに success_rate が 0.43→0.00 へ落ちた）
   stages:
     - id: 1
       name: "Stage 1: cube だけ・低い目標"
@@ -32,6 +47,9 @@ curriculum:
       stable_duration: 2.0
       h_high: 0.075
       h_low: 0.025
+      # 掴む・運ぶ・載せるをゼロから獲得する最大の山。以降の全ステージがこの方策を
+      # 継承するので、Stage 1-4 の中では最大を割り当てる。
+      steps: 60000
     - id: 2
       name: "Stage 2: cube だけ・高い目標"
       shapes_allowed: [cube]
@@ -39,6 +57,8 @@ curriculum:
       stable_duration: 2.0
       h_high: 0.20
       h_low: 0.05
+      # 同じ cube のままで、増えるのは個数と目標高さ（約2倍）だけ。転移が最も効くので最小。
+      steps: 35000
     - id: 3
       name: "Stage 3: cube + cuboid"
       shapes_allowed: [cube, cuboid]
@@ -46,6 +66,9 @@ curriculum:
       stable_duration: 2.0
       h_high: 0.25
       h_low: 0.08
+      # 初めての非等方形状だが、実測では予算内で success_rate 0.43 に到達した
+      # （2026-07-20 の 1/10 スケール run）。余裕があるので削り、Stage 4 に回す。
+      steps: 25000
     - id: 4
       name: "Stage 4: 三角柱を追加（cube + cuboid + triangular_prism）"
       shapes_allowed: [cube, cuboid, triangular_prism]
@@ -53,6 +76,10 @@ curriculum:
       stable_duration: 2.0
       h_high: 0.28
       h_low: 0.10
+      # 斜面を持つ形状。実測で success_rate が 0.43（Stage 3）から 0.00 へ退行し、
+      # 予算終盤でようやく回復基調に入ったところで打ち切られた（2026-07-20 の run）。
+      # 適応に時間がかかるステージなので Stage 3 から回した分を上乗せする。
+      steps: 60000
     - id: 5
       name: "Stage 5: 円柱を追加（全 4 形状、最難）"
       shapes_allowed: [cube, cuboid, triangular_prism, cylinder]
@@ -60,13 +87,20 @@ curriculum:
       stable_duration: 2.0
       h_high: 0.32
       h_low: 0.12
+      # 転がる形状＝最難。既存の方策が通用しない新規スキルなので Stage 1 と並んで多く取る。
+      # 最終ステージなので仕上げの時間も兼ねる。
+      steps: 70000
 
 sac:
-  total_timesteps: 4000          # グローバル予算の安全上限（--target-stage 未到達時のタイムアウト; 本格は 1M+ 推奨）
-  # c6a.4xlarge (AMD EPYC, 8 物理コア) の物理コア飽和点。
-  # SAC は train_freq が低いほど on-step 学習が重く、CPU が物理 step より遅い場合は
-  # n_envs を上げすぎても train が間に合わない。8 は安全側。
-  n_envs: 8
+  # グローバル予算の上限（安全弁）。null なら「curriculum.stages の steps 合計」をそのまま使う。
+  # 数値を入れると、その値で打ち切る（ステージ予算の合計がこれを超える場合は最後のステージが短縮される）。
+  total_timesteps: null
+  # **1 に固定**（コンセプト判断）。このサービスの目的は「優秀なモデルの生成」ではなく
+  # 「子供が積み木で遊ぶのを眺める」体験であり、学習はゆっくりでよい・不出来さを残したい。
+  # 並列を増やすと速く賢くなりすぎる上、n_envs は replay_buffer.pkl の形状に焼き込まれる
+  # ため後から変更できない（学習と live_server で一致必須）。1 なら不一致事故も起きない。
+  # 注意: n_envs を変えるなら gradient_steps も揃えること（下記）。既存の長期記憶は捨てになる。
+  n_envs: 1
   buffer_size: 50000             # 重みつき設計のため、容量は標準の半分でも十分機能
   learning_starts: 200           # この回数 env steps 集めるまで policy 更新せず
   batch_size: 256                # replay からサンプリングするバッチ
@@ -74,14 +108,10 @@ sac:
   tau: 0.005                     # target network ソフト更新係数
   gamma: 0.99
   train_freq: 1                  # train_freq 個の env-step ごとに学習
-  gradient_steps: 8              # n_envs と揃える（n_envs * env_step = gradient_step）
+  gradient_steps: 1              # n_envs と揃える（1遷移あたり勾配1回。ズレると過学習/発散リスク）
   ent_coef: "auto"               # 自動エントロピー温度調整（子供の "色々試す" を最大エントロピーで実現）
   target_update_interval: 1
   log_interval: 4
-  # 絶対ステップ間隔で checkpoint を保存する。total_timesteps に依存しないため
-  # --target-stage による早期終了時でも適切な間隔で保存される。
-  # save_freq = checkpoint_every // n_envs（n_calls 基準）で算出する。
-  checkpoint_every: 50000
   features_dim: 128              # HybridFeatureExtractor output width
 
 # 重みつき記憶バッファ + 短期記憶の設定。子供っぽい記憶ダイナミクスを構成する。
@@ -142,10 +172,11 @@ observation:
   heightmap_resolution: 32       # NxN heightmap grid
 
 resume:
-  # --resume 時の長期記憶（WeightedReplayBuffer）時間減衰設定。
+  # live_server のスナップショット引き継ぎ時の長期記憶（WeightedReplayBuffer）時間減衰設定。
   # 経過日数 × steps_per_day ステップ分だけ内部時計（global_step）を進め、
-  # 前回学習終了から「時間が経った」ことによる記憶の自然な薄れを再現する。
+  # 前回セッション終了から「時間が経った」ことによる記憶の自然な薄れを再現する。
   # decay_rate は memory_system.decay_rate を流用する（別途変更不要）。
+  # 注: train.py の --resume は廃止済み。この設定を読むのは live_server だけ。
   steps_per_day: 5000        # 1 日あたりの減衰換算ステップ数
                              # 0.9999^5000 ≈ 0.607（≈1.4 日で記憶重みが半減）
   # 以下は手動上書き用（null = 自動算出）。

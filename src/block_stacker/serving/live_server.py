@@ -59,9 +59,33 @@ from block_stacker.sim.world import setup_world
 from block_stacker.streaming.broadcaster import PhysicsBroadcaster
 from block_stacker.training.checkpoint import find_latest_checkpoint
 from block_stacker.training.curriculum import resolve_graduation, stage_inventory
-from block_stacker.training.train import _compute_elapsed_steps, make_factory
+from block_stacker.training.train import make_factory
 
 LOG = logging.getLogger("serving.live")
+
+
+def _compute_elapsed_steps(resume_cfg: dict[str, Any], resume_state: dict[str, Any]) -> int:
+    """スナップショット引き継ぎ時に長期記憶の global_step へ加算するステップ数を算出。
+
+    前回セッション終了からの経過日数ぶんだけ記憶を薄れさせる（時間減衰）ための値。
+    優先順位: elapsed_steps（直接指定）> elapsed_days（日数）> timestamp 差から自動算出。
+    かつて train.py の --resume と共用していたが、--resume 廃止に伴いこちらへ移設した。
+    """
+    if resume_cfg.get("elapsed_steps") is not None:
+        return max(0, int(resume_cfg["elapsed_steps"]))
+    steps_per_day = int(resume_cfg.get("steps_per_day", 5000))
+    if resume_cfg.get("elapsed_days") is not None:
+        return max(0, int(resume_cfg["elapsed_days"])) * steps_per_day
+    # 自動: resume_state.json の timestamp から経過日数を計算
+    ts = resume_state.get("timestamp")
+    if ts:
+        prev = datetime.fromisoformat(ts)
+        now = datetime.now()
+        if prev.tzinfo is not None:
+            prev = prev.replace(tzinfo=None)
+        days = max(0, (now - prev).days)
+        return days * steps_per_day
+    return 0
 
 
 # ----------------------------------------------------------------- weight sync
