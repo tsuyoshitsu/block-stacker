@@ -1,5 +1,5 @@
-# Step 60: Launch Templates + Auto Scaling Groups (全 Spot, 100% capacity-optimized)。
-# 各 ASG は desired_capacity=0 で作成。EventBridge が稼働時間に 1 へ。
+# Step 60: Launch Templates + EC2 インスタンス（全 Spot）。
+# 各インスタンスは作成後すぐ stop。EventBridge → Lambda が稼働時間に start する。
 
 . $PSScriptRoot/common.ps1
 
@@ -11,12 +11,12 @@ $ecrRegistry = $script:BS.EcrRegistry
 $publicSubnet  = Get-State public_subnet_id
 $privateSubnet = Get-State private_subnet_id
 $streamerSg    = Get-State sg_streamer_id
-$demoSg        = Get-State sg_demo_id
+$liveSg        = Get-State sg_live_id
 $learnerSg     = Get-State sg_learner_id
 $eipAlloc      = Get-State eip_alloc_id
 $profile       = Get-State ec2_instance_profile
 
-if (-not ($publicSubnet -and $privateSubnet -and $streamerSg -and $demoSg -and $learnerSg -and $eipAlloc -and $profile)) {
+if (-not ($publicSubnet -and $privateSubnet -and $streamerSg -and $liveSg -and $learnerSg -and $eipAlloc -and $profile)) {
     throw "前段 (10〜50) の state が不足しています。"
 }
 
@@ -34,7 +34,7 @@ $amiX86 = aws ec2 describe-images --owners amazon `
     --query "sort_by(Images, &CreationDate)[-1].ImageId" --output text
 
 Write-Done "arm64 = $amiArm"
-Write-Done "x86_64 = $amiX86 (demo + learner 共用)"
+Write-Done "x86_64 = $amiX86 (live + learner 共用)"
 
 # --------------------------------------------------------------------
 # Launch Templates
@@ -97,7 +97,7 @@ function New-Lt {
     return $ltId
 }
 
-Write-Step "user-data を生成 (streamer / demo / learner)"
+Write-Step "user-data を生成 (streamer / live / learner)"
 
 $udStreamer = Expand-Userdata "streamer.sh" @{
     REGION     = $region
@@ -106,7 +106,7 @@ $udStreamer = Expand-Userdata "streamer.sh" @{
     APP_BUCKET = $bucket
 }
 
-$udDemo = Expand-Userdata "demo.sh" @{
+$udLive = Expand-Userdata "live.sh" @{
     REGION       = $region
     APP_BUCKET   = $bucket
     ECR_REGISTRY = $ecrRegistry
@@ -125,10 +125,10 @@ $ltStreamer = New-Lt -Name "bs-streamer-lt" -Ami $amiArm `
     -SubnetId $publicSubnet -UserDataB64 $udStreamer
 Set-State lt_streamer $ltStreamer
 
-$ltDemo = New-Lt -Name "bs-demo-lt" -Ami $amiX86 `
-    -InstanceType $script:BS.DemoType -SgId $demoSg `
-    -SubnetId $privateSubnet -UserDataB64 $udDemo -DiskGb 50
-Set-State lt_demo $ltDemo
+$ltLive = New-Lt -Name "bs-live-lt" -Ami $amiX86 `
+    -InstanceType $script:BS.LiveType -SgId $liveSg `
+    -SubnetId $privateSubnet -UserDataB64 $udLive -DiskGb 50
+Set-State lt_live $ltLive
 
 $ltLearner = New-Lt -Name "bs-learner-lt" -Ami $amiX86 `
     -InstanceType $script:BS.LearnerType -SgId $learnerSg `
@@ -136,7 +136,7 @@ $ltLearner = New-Lt -Name "bs-learner-lt" -Ami $amiX86 `
 Set-State lt_learner $ltLearner
 
 # --------------------------------------------------------------------
-# Auto Scaling Groups (全 Spot, capacity-optimized)
+# EC2 インスタンス（全 Spot）
 # --------------------------------------------------------------------
 
 # ASG は撤去した（min=0/max=1 でスケールしておらず、実態は「起動/停止スイッチ」だった）。
@@ -187,12 +187,12 @@ function New-StoppedInstance {
 Write-Step "EC2 インスタンス作成（作成後すぐ stop）"
 
 $idStreamer = New-StoppedInstance -Name "bs-streamer" -LtId $ltStreamer -SubnetId $publicSubnet
-$idDemo     = New-StoppedInstance -Name "bs-demo"     -LtId $ltDemo     -SubnetId $privateSubnet
+$idLive     = New-StoppedInstance -Name "bs-live"     -LtId $ltLive     -SubnetId $privateSubnet
 $idLearner  = New-StoppedInstance -Name "bs-learner"  -LtId $ltLearner  -SubnetId $privateSubnet
 
 Set-State instance_ids @{
     streamer = $idStreamer
-    demo     = $idDemo
+    live     = $idLive
     learner  = $idLearner
 }
 

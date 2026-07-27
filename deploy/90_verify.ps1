@@ -8,7 +8,7 @@ if (-not $instanceIds) {
 }
 
 Write-Step "全インスタンスを手動 start"
-foreach ($n in $instanceIds.streamer, $instanceIds.demo, $instanceIds.learner) {
+foreach ($n in $instanceIds.streamer, $instanceIds.live, $instanceIds.learner) {
     aws ec2 start-instances --instance-ids $n | Out-Null
     Write-Done "$n -> 1"
 }

@@ -22,8 +22,8 @@ ASG からの移行について:
 スケジュール構成（70_lambda.ps1 と一致させる。時刻は暫定）:
     bs-learner-start  cron(0 0 1 * ? *)       payload {"instance_ids": ["<learner>"]}
     bs-learner-stop   cron(0 2 1 * ? *)       同上
-    bs-demo-start     cron(0 1 ? * MON-FRI *) payload {"instance_ids": ["<demo>", "<streamer>"]}
-    bs-demo-stop      cron(0 9 ? * MON-FRI *) 同上
+    bs-live-start     cron(0 1 ? * MON-FRI *) payload {"instance_ids": ["<live>", "<streamer>"]}
+    bs-live-stop      cron(0 9 ? * MON-FRI *) 同上
 """
 import json
 import logging

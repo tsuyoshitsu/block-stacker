@@ -27,16 +27,16 @@ tar -xzf /tmp/caddy.tar.gz -C /usr/local/bin caddy
 chmod +x /usr/local/bin/caddy
 setcap cap_net_bind_service=+ep /usr/local/bin/caddy
 
-# 3) demo EC2 の private IP を SSM から待ち取得
-DEMO_IP=""
+# 3) live EC2 の private IP を SSM から待ち取得
+LIVE_IP=""
 for i in $(seq 1 30); do
-    DEMO_IP=$(aws ssm get-parameter --region "$REGION" --name /bs/demo/private_ip \
+    LIVE_IP=$(aws ssm get-parameter --region "$REGION" --name /bs/live/private_ip \
                 --query Parameter.Value --output text 2>/dev/null || echo "")
-    [ -n "$DEMO_IP" ] && [ "$DEMO_IP" != "None" ] && break
-    echo "[bs] waiting for demo private IP in SSM... ($i/30)"
+    [ -n "$LIVE_IP" ] && [ "$LIVE_IP" != "None" ] && break
+    echo "[bs] waiting for live private IP in SSM... ($i/30)"
     sleep 10
 done
-[ -z "$DEMO_IP" ] || [ "$DEMO_IP" = "None" ] && DEMO_IP="127.0.0.1"
+[ -z "$LIVE_IP" ] || [ "$LIVE_IP" = "None" ] && LIVE_IP="127.0.0.1"
 
 # 4) Caddyfile (WebSocket 対応)
 mkdir -p /etc/caddy /var/log/caddy /var/lib/caddy
@@ -54,10 +54,10 @@ ${DOMAIN} {
         header Connection *Upgrade*
         header Upgrade    websocket
     }
-    reverse_proxy @ws ${DEMO_IP}:8765 {
+    reverse_proxy @ws ${LIVE_IP}:8765 {
         flush_interval -1
     }
-    reverse_proxy ${DEMO_IP}:8765
+    reverse_proxy ${LIVE_IP}:8765
 }
 EOF
 
@@ -117,4 +117,4 @@ WantedBy=multi-user.target
 EOF
 systemctl enable --now spot-handler.service
 
-echo "[bs] streamer ready: https://${DOMAIN} -> ${DEMO_IP}:8765"
+echo "[bs] streamer ready: https://${DOMAIN} -> ${LIVE_IP}:8765"

@@ -6,7 +6,7 @@ $accountId = $script:BS.AccountId
 $region    = $script:BS.Region
 
 Write-Step "Log Groups を作成"
-foreach ($g in "/aws/ec2/bs-streamer", "/aws/ec2/bs-demo", "/aws/ec2/bs-learner",
+foreach ($g in "/aws/ec2/bs-streamer", "/aws/ec2/bs-live", "/aws/ec2/bs-learner",
                "/aws/lambda/bs-scale-up", "/aws/lambda/bs-scale-down") {
     $exists = aws logs describe-log-groups --log-group-name-prefix $g `
         --query "logGroups[?logGroupName=='$g'] | length(@)" --output text

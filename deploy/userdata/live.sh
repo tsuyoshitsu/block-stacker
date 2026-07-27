@@ -1,5 +1,5 @@
 #!/bin/bash
-# デモ EC2 (c6a.2xlarge Spot) ブート時スクリプト。
+# 配信EC2 / live (c6a.2xlarge Spot) ブート時スクリプト。
 # live_server を Docker で起動し、private IP を SSM に登録（配信側が discover する）。
 # live_server = 1x速の配信 + バックグラウンド学習の融合（docs/live_mode.md）。
 
@@ -17,7 +17,7 @@ systemctl enable --now docker
 
 # private IP を SSM に書く（配信 EC2 が読む）
 PRIVATE_IP=$(curl -s http://169.254.169.254/latest/meta-data/local-ipv4)
-aws ssm put-parameter --region "$REGION" --name /bs/demo/private_ip \
+aws ssm put-parameter --region "$REGION" --name /bs/live/private_ip \
     --type String --value "$PRIVATE_IP" --overwrite
 
 # ECR login
@@ -35,13 +35,13 @@ aws s3 sync s3://"$APP_BUCKET"/configs/     /opt/bs/configs/
 #     前営業日のスナップショットをここから自動で引き継ぐ（--no-resume は初回のみ）。
 #   --n-envs / --sync-every は既定（1 / 50）が運用値なので指定しない。
 #     n_envs はスナップショット作成時と一致必須（不一致だと学習スレッドだけ落ちる）。
-docker run -d --name demo --restart unless-stopped \
+docker run -d --name live --restart unless-stopped \
     -p 8765:8765 \
     -v /opt/bs/state:/app/state \
     -v /opt/bs/models:/app/models \
     -v /opt/bs/configs:/app/configs \
     -e APP_BUCKET="$APP_BUCKET" \
-    "$ECR_REGISTRY/block-stacker/demo:latest" \
+    "$ECR_REGISTRY/block-stacker/live:latest" \
     block_stacker.serving.live_server \
         --snapshot-dir /app/models \
         --port 8765 \
@@ -51,7 +51,7 @@ docker run -d --name demo --restart unless-stopped \
 cat > /opt/aws/amazon-cloudwatch-agent/etc/cw.json <<EOF
 {
   "logs": {"logs_collected": {"files": {"collect_list":[
-    {"file_path":"/var/log/userdata.log","log_group_name":"/aws/ec2/bs-demo","log_stream_name":"{instance_id}/userdata"}
+    {"file_path":"/var/log/userdata.log","log_group_name":"/aws/ec2/bs-live","log_stream_name":"{instance_id}/userdata"}
   ]}}}
 }
 EOF
@@ -66,7 +66,7 @@ while true; do
     if [ "\$STATUS" = "200" ]; then
         logger "[bs] spot interruption: flush state -> S3"
         aws s3 sync /opt/bs/state/ s3://${APP_BUCKET}/world_state/
-        docker stop demo
+        docker stop live
         sleep 90
         break
     fi
@@ -87,4 +87,4 @@ WantedBy=multi-user.target
 EOF
 systemctl enable --now spot-handler.service
 
-echo "[bs] demo ready: private_ip=$PRIVATE_IP, ai_server on :8765"
+echo "[bs] live ready: private_ip=$PRIVATE_IP, live_server on :8765"

@@ -36,9 +36,9 @@
 | 項目 | 内容 |
 |---|---|
 | リージョン | ap-northeast-1 (Tokyo) |
-| 稼働日時（**暫定**） | **プリセット生成: 月初1日 09:00 JST・5k steps (~35分)** / **デモ+学習配信: 平日 10-18 JST (月 176h、祝日除く)** |
+| 稼働日時（**暫定**） | **プリセット生成: 月初1日 09:00 JST・5k steps (~35分)** / **live（配信＋学習）: 平日 10-18 JST (月 176h、祝日除く)** |
 | 学習 EC2 | `c6a.4xlarge` Spot（AMD EPYC, CPU-only, 8 物理コア） |
-| デモ EC2 | `c6a.2xlarge` Spot（推奨。最低 c6a.xlarge / 最高 m7a.2xlarge、選定根拠は design.md §8.3.1）|
+| live EC2 | `c6a.2xlarge` Spot（推奨。最低 c6a.xlarge / 最高 m7a.2xlarge、選定根拠は design.md §8.3.1）|
 | 配信 EC2 | `t4g.small` Spot + Caddy（自動 TLS） |
 | クライアント | Godot 4.4.1 .NET 版 + C# (`WsClient.cs`)、視聴者の PC で実行 |
 | ロードバランサ | なし（EC2 + EIP + Caddy） |
@@ -64,15 +64,15 @@
    │   ┌────────────────────────────────────────┐    │
    │   │ 配信 EC2 t4g.small Spot                 │    │
    │   │   - Caddy（自動 TLS）                   │    │
-   │   │   - reverse_proxy 443 → demo:8765       │    │
+   │   │   - reverse_proxy 443 → live:8765       │    │
    │   └────────┬───────────────────────────────┘    │
    └────────────┼─────────────────────────────────────┘
-                │ SG: streamer → demo:8765 (VPC 内クロス SG)
+                │ SG: streamer → live:8765 (VPC 内クロス SG)
                 ▼
    ┌──────────────────────────────────────────────────┐
    │ Private Subnet (10.10.2.0/24)                    │
    │   ┌────────────────────────────────┐             │
-   │   │ デモ EC2 c6a.2xlarge Spot       │             │
+   │   │ live EC2 c6a.2xlarge Spot       │             │
    │   │   - live_server.py (Docker)     │             │
    │   │   - WebSocket :8765 (in-process)│             │
    │   └────────────────────────────────┘             │
@@ -124,7 +124,7 @@
 
 - 課金有効
 - サービスクォータ（デフォルト範囲で OK）:
-  - c6a / c6i Spot vCPU: 計 24 程度（学習 16 + デモ 4 + フォールバック余裕）
+  - c6a / c6i Spot vCPU: 計 24 程度（学習 16 + live 4 + フォールバック余裕）
   - t4g Spot vCPU: 8
   - Interface VPC Endpoint: 3 (ecr.api + ecr.dkr + logs)
 
@@ -166,7 +166,7 @@ AppBucketPrefix = "bs-app"        # → "bs-app-<ACCOUNT_ID>" がフルバケッ
 ### 3.1 ECR リポジトリを作成
 
 ```powershell
-aws ecr create-repository --repository-name block-stacker/demo
+aws ecr create-repository --repository-name block-stacker/live
 aws ecr create-repository --repository-name block-stacker/learner
 # 配信用は Caddy をホストインストールで使うのでイメージ不要
 ```
@@ -180,10 +180,10 @@ $REGISTRY = "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
 
 aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $REGISTRY
 
-# デモ用 (CPU)
-docker build -t block-stacker/demo:latest .
-docker tag block-stacker/demo:latest "$REGISTRY/block-stacker/demo:latest"
-docker push "$REGISTRY/block-stacker/demo:latest"
+# live 用 (CPU)
+docker build -t block-stacker/live:latest .
+docker tag block-stacker/live:latest "$REGISTRY/block-stacker/live:latest"
+docker push "$REGISTRY/block-stacker/live:latest"
 
 # 学習用 (CPU torch, AMD EPYC)
 docker build -f Dockerfile.learner -t block-stacker/learner:latest .
@@ -203,7 +203,7 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意
 > 配下の `sac_<run_ts>_<steps>_steps.zip` を `(run_ts, steps)` 順で自動選択する
 > （`find_latest_checkpoint`）。`latest.pt` のような別名にリネームすると**拾えなくなる**。
 
-未アップロードの場合、デモ EC2 起動時にモデルが無いのでエラーログが出ます。
+未アップロードの場合、live EC2 起動時にモデルが無いのでエラーログが出ます。
 初回は「インフラを立ち上げ、後でモデルを upload」で OK。
 
 ---
@@ -252,17 +252,17 @@ cd C:\Users\iii03\block-stacker\lambda
 
 `./60_ec2.ps1` は EC2 を作成後すぐ stop します。スケジュール起動 or 手動 start の際、AL2023 AMI で以下が実行されます。
 
-**デモ EC2 (`demo.sh`)** の起動フロー：
+**live EC2 (`live.sh`)** の起動フロー：
 
 ```
 [1] dnf install docker awscli amazon-cloudwatch-agent
 [2] systemctl enable --now docker
-[3] private IP を SSM /bs/demo/private_ip に登録（配信 EC2 が読む）
+[3] private IP を SSM /bs/live/private_ip に登録（配信 EC2 が読む）
 [4] aws ecr get-login-password | docker login   ← Endpoint (ecr.api) 経由
 [5] aws s3 sync s3://bs-app-*/world_state/ /opt/bs/state/   ← S3 Gateway 経由
 [6] aws s3 sync s3://bs-app-*/models/      /opt/bs/models/
 [7] aws s3 sync s3://bs-app-*/configs/     /opt/bs/configs/
-[8] docker run ... block-stacker/demo ... live_server    ← Endpoint (ecr.dkr) + S3 経由でレイヤ pull
+[8] docker run ... block-stacker/live ... live_server    ← Endpoint (ecr.dkr) + S3 経由でレイヤ pull
 [9] CloudWatch Agent 設定 → /var/log/userdata.log を集約   ← Endpoint (logs) 経由
 [10] spot interrupt 監視 systemd service を常駐
 ```
@@ -278,7 +278,7 @@ cd C:\Users\iii03\block-stacker\lambda
 > 予算は `--stage-steps`（一括 or ステージ別）で上書き可。
 > 成果は全ステージ走破後の `fresh/sac_*_steps.zip` **1 本**を S3 に保存する（`sac_final.zip` は廃止）。
 > Stage 1 のみに戻すなら `CMD` に `--no-curriculum` を渡す（既定 ON なので `--curriculum` を外すだけでは無効化されない）。
-> **デモ EC2 の `live_server` は常に最終ステージ（全形状）で配信しながらバックグラウンド学習**。既定モデルは
+> **live EC2 の `live_server` は常に最終ステージ（全形状）で配信しながらバックグラウンド学習**。既定モデルは
 > `fresh/` / `played/` の最大ステップ checkpoint を自動選択する。
 >
 > **コンテナ環境変数で上書き可**（優先順位: env var > training.yaml > 既定）。
@@ -378,18 +378,18 @@ EventBridge Scheduler 4 系統で、対象インスタンスごとに別スケ�
 |----------|---------|---------|---------|---------|
 | `bs-learner-start` | `cron(0 0 1 * ? *)` | 毎月 1 日 09:00 | learner | `{"instance_ids": ["<learner-id>"]}` |
 | `bs-learner-stop`  | `cron(0 2 1 * ? *)`| 毎月 1 日 11:00（完了で self-stop、cron は保険）| 同上 | 同上 |
-| `bs-demo-start`    | `cron(0 1 ? * MON-FRI *)` | 月〜金 10:00 | demo + streamer | `{"instance_ids": ["<demo-id>", "<streamer-id>"]}` |
-| `bs-demo-stop`     | `cron(0 9 ? * MON-FRI *)`| 月〜金 18:00 | 同上 | 同上 |
+| `bs-live-start`    | `cron(0 1 ? * MON-FRI *)` | 月〜金 10:00 | live + streamer | `{"instance_ids": ["<live-id>", "<streamer-id>"]}` |
+| `bs-live-stop`     | `cron(0 9 ? * MON-FRI *)`| 月〜金 18:00 | 同上 | 同上 |
 
 Lambda は 1 ペア（`bs-scale-up` / `bs-scale-down`）を 4 スケジュールが共有し、payload で対象インスタンスを切り替える設計。
 **stop は terminate と違い EBS を保持する**ので、live_server のスナップショットや world_state はインスタンス上に残る。
 
-祝日は `bs-scale-up` 内の `jpholiday.is_holiday()` で skip（デモ+配信に適用。月初のプリセット生成が祝日と重なった場合の扱いは運用時に調整）。
+祝日は `bs-scale-up` 内の `jpholiday.is_holiday()` で skip（live+配信に適用。月初のプリセット生成が祝日と重なった場合の扱いは運用時に調整）。
 
 **運用パターン（暫定・調整中）:**
-- 平日 10-18 JST: デモ EC2 が live_server で**配信＋バックグラウンド学習**（融合）。誰でも観られる
+- 平日 10-18 JST: live EC2 が live_server で**配信＋バックグラウンド学習**（融合）。誰でも観られる
 - 月初 1 日 午前: プリセット生成（Stage 3 のみ 5k steps・約35分。train 既定）でその月のシードを作る
-- 月初のプリセット生成モデルは S3 に保存され、以降デモ EC2 が live_server で日々引き継いで学習する
+- 月初のプリセット生成モデルは S3 に保存され、以降live EC2 が live_server で日々引き継いで学習する
 - ローカル学習をメインにする場合、`bs-learner-*` の Scheduler を無効化または削除可（学習 EC2 は手動 invoke で気が向いたタイミングだけ起動）
 
 ### 6.2 設定変更を反映
@@ -410,7 +410,7 @@ aws s3 cp configs/training.yaml s3://bs-app-$ACCOUNT/configs/training.yaml
 # S3 にアップロード（fresh/ の最大ステップ checkpoint を最新モデルとして）
 $model = (Get-ChildItem "output\training\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
 aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意）
-# デモ EC2 は次回 collapse 時 (or 再起動時) に S3 からモデル再ロード
+# live EC2 は次回 collapse 時 (or 再起動時) に S3 からモデル再ロード
 ```
 
 ### 6.4 手動停止 / 再開
@@ -418,7 +418,7 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意
 ```powershell
 # instance_id は deploy/state.json の instance_ids から取る
 $ids = (Get-Content deploy/state.json | ConvertFrom-Json).instance_ids
-$all = @($ids.streamer, $ids.demo, $ids.learner)
+$all = @($ids.streamer, $ids.live, $ids.learner)
 
 # 即停止（stop なので EBS は保持され、次回起動時に状態が残る）
 aws ec2 stop-instances --instance-ids $all
@@ -427,7 +427,7 @@ aws ec2 stop-instances --instance-ids $all
 aws ec2 start-instances --instance-ids $all
 ```
 
-> 配信だけ止めたい/動かしたいなら `$ids.demo` と `$ids.streamer` の 2 つだけを対象にする。
+> 配信だけ止めたい/動かしたいなら `$ids.live` と `$ids.streamer` の 2 つだけを対象にする。
 
 ---
 
@@ -452,14 +452,14 @@ aws s3api delete-bucket --bucket bs-app-$ACCOUNT
 
 | 症状 | 確認 | 対処 |
 |---|---|---|
-| **Spot 在庫切れで `run-instances` が失敗**（`./60_ec2.ps1`） | `aws ec2 describe-spot-price-history --instance-types c6a.2xlarge --max-results 5` | **ASG 撤去により自動フォールバックは無い（手動対応）**。`common.ps1` の `DemoType` / `LearnerType` を `LearnerFallbackCandidates`（c6i / c7a / m6a 系）のいずれかに書き換えて `./60_ec2.ps1` を再実行する |
+| **Spot 在庫切れで `run-instances` が失敗**（`./60_ec2.ps1`） | `aws ec2 describe-spot-price-history --instance-types c6a.2xlarge --max-results 5` | **ASG 撤去により自動フォールバックは無い（手動対応）**。`common.ps1` の `LiveType` / `LearnerType` を `LearnerFallbackCandidates`（c6i / c7a / m6a 系）のいずれかに書き換えて `./60_ec2.ps1` を再実行する |
 | **Spot 中断でインスタンスが落ちた**（稼働中） | `aws ec2 describe-instances --instance-ids <id> --query "Reservations[].Instances[].State.Name"` | **ASG 撤去により自動再起動は無い（手動対応）**。`aws ec2 start-instances --instance-ids <id>` で再開する。Spot 中断は terminate ではなく stop 相当で扱われる設定のため EBS は残るが、live_server のスナップショットは中断ハンドラが保存できた分までになる |
-| **EC2 で `docker login` が失敗 / timeout** | `aws logs tail /aws/ec2/bs-demo --since 10m`（CW Logs 経由） or SSM Session で `/var/log/userdata.log` | (1) `./10_network.ps1` で endpoint 3 個が available か（§5.0 参照） (2) `vpce` SG の inbound 443 が VPC CIDR から許可されているか (3) `PrivateDnsEnabled=true` か |
-| **EC2 で `docker pull` が `manifest unknown`** | ECR コンソールでイメージタグ確認 | §3.2 の build/push を再実行。`block-stacker/demo:latest` と `block-stacker/learner:latest` が両方 push されているか |
+| **EC2 で `docker login` が失敗 / timeout** | `aws logs tail /aws/ec2/bs-live --since 10m`（CW Logs 経由） or SSM Session で `/var/log/userdata.log` | (1) `./10_network.ps1` で endpoint 3 個が available か（§5.0 参照） (2) `vpce` SG の inbound 443 が VPC CIDR から許可されているか (3) `PrivateDnsEnabled=true` か |
+| **EC2 で `docker pull` が `manifest unknown`** | ECR コンソールでイメージタグ確認 | §3.2 の build/push を再実行。`block-stacker/live:latest` と `block-stacker/learner:latest` が両方 push されているか |
 | **CloudWatch Logs に何も流れない** | EC2 内で `journalctl -u amazon-cloudwatch-agent` | `logs` Interface Endpoint が available か。Endpoint 無いと CW Agent が静かに失敗 |
 | Endpoint の DNS 解決失敗（`ssm-agent` 等が timeout） | EC2 内で `nslookup ecr.ap-northeast-1.amazonaws.com` | `PrivateDnsEnabled` を true にし忘れていると Public エンドポイントを引いてしまい IGW 不在で詰む。`aws ec2 modify-vpc-endpoint --vpc-endpoint-id ... --private-dns-enabled` |
 | Caddy が TLS 取得失敗 | `aws logs tail /aws/ec2/bs-streamer --filter-pattern acme --since 10m` | Port 80 が 0.0.0.0/0 から到達可、A レコードが EIP を指す |
-| WebSocket 接続できない | `curl -v https://bs.example.com/` | Caddy 起動、Demo SG の 8765 inbound、SSM `/bs/demo/private_ip` |
+| WebSocket 接続できない | `curl -v https://bs.example.com/` | Caddy 起動、Live SG の 8765 inbound、SSM `/bs/live/private_ip` |
 | Lambda が動かない | `aws logs tail /aws/lambda/bs-scale-up --since 1h` | jpholiday import、INSTANCE_IDS env var |
 | state.json と AWS が乖離 | `aws ec2 describe-vpcs --filters Name=tag:Project,Values=block-stacker` 等で確認 | 該当 step スクリプトを再実行（冪等） |
 | S3 同期で permission denied | `aws sts get-caller-identity` で実行ロール確認 | IAM ロールで `bs-app-*` パスに access あるか |
@@ -492,7 +492,7 @@ deploy/
 ├── lambda_scheduler.zip    ← 70_lambda.ps1 がビルドして配置
 └── userdata/
     ├── streamer.sh         ← <<KEY>> プレースホルダを 60_ec2 が置換
-    ├── demo.sh
+    ├── live.sh
     └── learner.sh
 ```
 
@@ -543,12 +543,12 @@ Remove-Item $tmp
 
 為替前提: 1 USD = ¥150（円換算の参考値、実請求は時点レート × USD で確定）。
 
-稼働時間（暫定）: プリセット生成 ~35分/月（月初 5k steps）、デモ+学習配信 176h/月（平日 10-18 JST、祝日除く）
+稼働時間（暫定）: プリセット生成 ~35分/月（月初 5k steps）、live（配信＋学習） 176h/月（平日 10-18 JST、祝日除く）
 
 | 項目 | USD/月 | ¥/月 |
 |---|---|---|
 | プリセット生成 c6a.4xlarge Spot (~1h × $0.20) | $0.2 | ¥30 |
-| デモ c6a.2xlarge Spot (176h × ~$0.13) | $22.9 | ¥3,435 |
+| live c6a.2xlarge Spot (176h × ~$0.13) | $22.9 | ¥3,435 |
 | 配信 t4g.small Spot (176h × $0.007) | $1.2 | ¥185 |
 | EBS gp3 180GB（稼働時間プロレート） | $2.1 | ¥314 |
 | ECR Interface Endpoint × 2 + Logs × 1 | $22 | ¥3,300 |
@@ -558,7 +558,7 @@ Remove-Item $tmp
 | データ転送（視聴時間 2.6 倍想定） | $6 | ¥900 |
 | **合計** | **約 $59** | **約 ¥8,900** |
 
-> デモ行は**推奨 c6a.2xlarge**。段階を変えると合計が動く（最低 c6a.xlarge: -¥1,300 → 約 ¥7,600、
+> live 行は**推奨 c6a.2xlarge**。段階を変えると合計が動く（最低 c6a.xlarge: -¥1,300 → 約 ¥7,600、
 > 最高 m7a.2xlarge: +¥1,000 → 約 ¥9,900）。3 段階の根拠は design.md §8.3.1。
 > プリセット生成を月初 5k（~35分）に縮小したことで旧「学習 16h ¥480」→ ¥30。
 
@@ -579,7 +579,7 @@ Remove-Item $tmp
 1. **同時接続クライアント数が 15 を超える**
    `src/block_stacker/streaming/server.py` のレビューノートで言及。SFU 化または Redis pub/sub による fan-out が必要になる。
 
-2. **デモ EC2 を複数台で運用する**
+2. **live EC2 を複数台で運用する**
    現状 `max_size = 1` 固定。複数化するなら WebSocket セッション情報を Redis に外出しする必要がある。
 
 3. **学習→推論のモデル更新を `live_server` の `--sync-every` より細かく制御したい**
@@ -595,8 +595,8 @@ Remove-Item $tmp
 
 - `infra-terraform/redis.tf` を git history から復元、または以下を新規作成:
   - `aws_elasticache_subnet_group`、`aws_elasticache_cluster` (cache.t4g.micro)
-  - `aws_security_group "redis"`（6379 from streamer + demo）
-- `aws_ssm_parameter "/bs/redis_endpoint"` を作成、demo.sh から `aws ssm get-parameter` で動的取得
+  - `aws_security_group "redis"`（6379 from streamer + live）
+- `aws_ssm_parameter "/bs/redis_endpoint"` を作成、live.sh から `aws ssm get-parameter` で動的取得
 - `pyproject.toml` に `redis-py` 追加、`live_server.py` で接続
 
 ---
@@ -790,7 +790,7 @@ PPO に一度切り替えた経緯は無駄ではなく、その過程で **「�
 ```
 [視聴者の PC]
    ↓ ws://bs.example.com/ (TLS)
-[配信 EC2: Caddy] → reverse_proxy → [デモ EC2: live_server :8765]
+[配信 EC2: Caddy] → reverse_proxy → [live EC2: live_server :8765]
                                        ↓ 物理シム
                                     [PyBullet (Z-up)]
 
@@ -1087,7 +1087,7 @@ tools\demo_checkpoints.ps1 -Mode auto -Seconds 30 -LaunchGodot
 
 ### G.5 ローカルモデルをクラウドへアップロード
 
-ローカルで学習させた良いモデルをクラウドのデモで使いたい場合：
+ローカルで学習させた良いモデルをクラウドの liveで使いたい場合：
 
 ```powershell
 $ACCOUNT = aws sts get-caller-identity --query Account --output text
@@ -1095,7 +1095,7 @@ $model = (Get-ChildItem "output\training\fresh" -Filter "sac_*_steps.zip" | Sort
 aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意）
 ```
 
-→ 次回クラウドデモ起動時に S3 から自動取得して使用される。
+→ 次回クラウドの live起動時に S3 から自動取得して使用される。
 
 ### G.6 ローカル vs クラウドの役割分担
 
@@ -1106,13 +1106,13 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意
 | Checkpoint 比較・成長観察 | ◎ tools/demo_checkpoints.ps1 | △ |
 | 長時間連続学習 | △ 電気代・熱 | ○ 平日 8h の live_server 連続学習を自動化 |
 | 一般視聴者向け配信 | × wss / TLS が無い | ◎ Caddy で配信 |
-| デモの長時間運転 | △ | ◎ 平日 8h × 22 日 = 176h/月 |
+| live の長時間運転 | △ | ◎ 平日 8h × 22 日 = 176h/月 |
 
 → **「ローカルで仕込んだモデル」をクラウドで配信**、というのが基本パターン。
 
-### G.7 デモ EC2 の本番起動（live_server）
+### G.7 live EC2 の本番起動（live_server）
 
-デモ EC2 の本番起動には `live_server.py` を使用します（**配信しながらバックグラウンドで学習を継続**）。
+live EC2 の本番起動には `live_server.py` を使用します（**配信しながらバックグラウンドで学習を継続**）。
 `ai_server.py`（推論のみ）はローカル開発・動作確認用です。
 
 ```powershell
@@ -1138,7 +1138,7 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意
 
 ### イメージとパッケージのビルド
 
-- [ ] ECR 2 リポジトリ作成 (`block-stacker/demo`, `block-stacker/learner`)
+- [ ] ECR 2 リポジトリ作成 (`block-stacker/live`, `block-stacker/learner`)
 - [ ] Docker イメージビルド + push (`Dockerfile`, `Dockerfile.learner`)
 - [ ] `lambda/build.ps1` で zip ビルド済 (`lambda_scheduler.zip`)
 
@@ -1152,16 +1152,16 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意
 ### スケジュール動作確認
 
 - [ ] `bs-learner-start`, `bs-learner-stop` の Scheduler 確認（aws scheduler list-schedules）
-- [ ] `bs-demo-start`, `bs-demo-stop` の Scheduler 確認
+- [ ] `bs-live-start`, `bs-live-stop` の Scheduler 確認
 - [ ] Lambda を手動 invoke して learner だけ起動: `aws lambda invoke --function-name bs-scale-up --payload '{"instance_ids":["<learner-id>"]}' /tmp/out.json`
-- [ ] Lambda を手動 invoke して demo+streamer だけ起動: `--payload '{"instance_ids":["<demo-id>","<streamer-id>"]}'`
+- [ ] Lambda を手動 invoke して live+streamer だけ起動: `--payload '{"instance_ids":["<live-id>","<streamer-id>"]}'`
 - [ ] 各インスタンスが独立に running/stopped になることを確認
 
 ### モデルの準備
 
 - [ ] ローカルで `training.train` を回して `output/training/fresh/` に checkpoint 生成
 - [ ] `aws s3 cp` で S3 にアップロード (`s3://bs-app-<ACCOUNT>/models/`、**ファイル名は維持**)
-- [ ] クラウドデモ起動時に S3 から取り込まれることを確認
+- [ ] クラウドの live起動時に S3 から取り込まれることを確認
 
 ### ローカルクライアント
 
@@ -1174,7 +1174,7 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意
 
 - [ ] AWS Budgets 設定 (`docs/aws_deployment.md` §C 参照、$70 想定)
 - [ ] `stop-instances` で停止確認
-- [ ] 翌平日に `bs-demo-start` が自動起動するのを確認
+- [ ] 翌平日に `bs-live-start` が自動起動するのを確認
 - [ ] 翌月初 1 日に `bs-learner-start`（プリセット生成）が自動起動するのを確認
 
 ---

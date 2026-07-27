@@ -43,7 +43,7 @@
                │ GET（起動時 + 崩落時）
                ▼
 ┌─────────────────────────────────────┐
-│ デモ EC2 (c6a.2xlarge, AMD 4コア)     │
+│ live EC2 (c6a.2xlarge, AMD 4コア)     │
 │ - live_server.py (配信+バックグラウンド学習融合) │
 │ - 物理1x速、フルアニメーション         │
 │ - WebSocket :8765 で配信             │
@@ -53,7 +53,7 @@
 ┌─────────────────────────────────────┐
 │ 配信 EC2 (t4g.small ARM, Caddy)      │
 │ - 自動 TLS (Let's Encrypt)           │
-│ - reverse_proxy wss://→ デモ:8765   │
+│ - reverse_proxy wss://→ live:8765   │
 └──────────────┬──────────────────────┘
                │ WebSocket (wss)
                ▼
@@ -65,7 +65,7 @@
 | コンポーネント | 役割 |
 |---|---|
 | 学習 EC2 (c6a.4xlarge Spot) | 月初にプリセット生成（Stage3 のみ 5k, n_envs=1）→ S3。※5k/n_envs=1 には過剰、§8.2 参照 |
-| デモ EC2 (c6a.2xlarge Spot) | 1x速で物理シム実行＋バックグラウンド学習、WebSocket 配信。選定は §8.3.1 |
+| live EC2 (c6a.2xlarge Spot) | 1x速で物理シム実行＋バックグラウンド学習、WebSocket 配信。選定は §8.3.1 |
 | 配信 EC2 (t4g.small Spot, ARM) | Caddy 自動 TLS + リバプロでクライアントへブロードキャスト |
 | S3 | モデル重み + 持続ワールド状態 + configs |
 | VPC Endpoints | S3 Gateway (無料) + ECR Interface × 2 + Logs Interface (Private Subnet 用) |
@@ -73,7 +73,7 @@
 ### モデル共有フロー
 
 1. 学習側（月初）: Stage3 のみ 5k steps のプリセット 1 本を `s3://bucket/models/` へ sync
-2. デモ側: 起動時に S3 から最新モデルを取り込み、live_server で配信（バックグラウンド学習込み）
+2. live 側: 起動時に S3 から最新モデルを取り込み、live_server で配信（バックグラウンド学習込み）
 
 > **設計変更履歴**:
 > - ElastiCache Redis は未使用のため撤去（実装上 import 無し、月 ¥2,460 節約）
@@ -847,23 +847,23 @@ ap-northeast-1 (Tokyo)
 - **① プリセット生成（月初・月1回）**: 月の初日に **Stage 3 のみ・5,000 steps** の短時間学習で
   その月のシードモデルを作る（n_envs=1、実測 約2.5 steps/秒 → **約1時間**）。
   レシピは**引数なし実行**（既定が start=target=3 / Stage3 steps=5,000）。
-- **② 学習配信（平日・日中8時間）**: デモ EC2 で `live_server` を回し、**配信しながら
+- **② 学習配信（平日・日中8時間）**: live EC2 で `live_server` を回し、**配信しながら
   バックグラウンドで継続学習**する。前営業日のスナップショットを引き継ぐので、月を通して
   シードから少しずつ賢くなる。
 
 | Scheduler | Cron (UTC) | JST 時刻 | 月間時間 | 対象インスタンス |
 |----------|---------|---------|---------|---------|
-| **bs-learner-start** | `cron(0 0 1 * ? *)` | 毎月 1 日 09:00 | プリセット生成 ~1h/月 | bs-learner-asg |
+| **bs-learner-start** | `cron(0 0 1 * ? *)` | 毎月 1 日 09:00 | プリセット生成 ~1h/月 | bs-learner |
 | **bs-learner-stop** | `cron(0 2 1 * ? *)` | 毎月 1 日 11:00 | 同上（完了で self-stop、この cron は保険） | 同上 |
-| **bs-demo-start** | `cron(0 1 ? * MON-FRI *)` | 月-金 10:00 | デモ+配信 176h/月 | bs-demo-asg + bs-streamer-asg |
-| **bs-demo-stop** | `cron(0 9 ? * MON-FRI *)` | 月-金 18:00 | 同上 | 同上 |
+| **bs-live-start** | `cron(0 1 ? * MON-FRI *)` | 月-金 10:00 | live+配信 176h/月 | bs-live + bs-streamer |
+| **bs-live-stop** | `cron(0 9 ? * MON-FRI *)` | 月-金 18:00 | 同上 | 同上 |
 
 > **スケジュール（暫定）**: 上記の稼働時間帯・学習頻度・ステップ数はいずれも**暫定値**で確定していない。
 > 特に「月初・5,000 steps」「平日 10-18 の 8h」は運用しながら調整する前提。
 >
 > **プリセット生成インスタンスは過剰の可能性**: 5,000 steps を n_envs=1 で回すのは 1 コア×約35分で、
 > 学習 EC2 の c6a.4xlarge（16 vCPU）は明らかにオーバースペック。将来は小型インスタンスへ寄せるか、
-> デモ EC2 の月初プリステップとして畳み込む案がある（未決）。
+> live EC2 の月初プリステップとして畳み込む案がある（未決）。
 >
 > 設計変更履歴: 旧版は隔週土曜にフルカリキュラム学習（16h/月）していたが、n_envs=1 の
 > ゆっくり育てる方針＋ live_server 融合（配信中に継続学習）へ移行したことで、
@@ -874,29 +874,29 @@ ap-northeast-1 (Tokyo)
 1 ペア (`bs-scale-up` / `bs-scale-down`) を共有し、各 Scheduler の `input` payload で対象インスタンスを指定：
 
 ```json
-{ "asg_names": ["bs-learner-asg"] }
-{ "asg_names": ["bs-demo-asg", "bs-streamer-asg"] }
+{ "instance_ids": ["<learner-id>"] }
+{ "instance_ids": ["<live-id>", "<streamer-id>"] }
 ```
 
 handler.py の `_resolve_instance_ids(event)` が payload 優先、未指定なら env var `INSTANCE_IDS` フォールバック。
 **ASG は撤去済み**で、Lambda は `ec2:StartInstances` / `StopInstances` を呼ぶ（経緯は design_change_record.md）。
 
-祝日は `jpholiday.is_holiday()` で skip（学習・デモ両方とも）。
+祝日は `jpholiday.is_holiday()` で skip（学習・live 両方とも）。
 
 ### 8.3 インスタンス構成
 
 | 役割 | インスタンス | 購入方式 | スペック |
 |---|---|---|---|
 | 学習（専用バッチ） | c6a.4xlarge | **Spot** | 16 vCPU (8 物理コア) / 32GB / AMD EPYC CPU-only |
-| デモ（配信＋学習融合） | **c6a.2xlarge（推奨）** | **Spot** | 8 vCPU (4 物理コア) / 16GB / AMD EPYC。3層の選定は §8.3.1 |
+| live（配信＋学習融合） | **c6a.2xlarge（推奨）** | **Spot** | 8 vCPU (4 物理コア) / 16GB / AMD EPYC。3層の選定は §8.3.1 |
 | 配信 | t4g.small (ARM) | **Spot** | 2 vCPU / 2GB + Caddy |
 
 > 設計変更履歴:
 > - 学習を GPU (g4dn) → CPU (c6a) に変更。NN が小規模で PyBullet が CPU bound なため GPU が活かせていなかった。月 ¥3,600 → ¥480 に削減。
-> - デモを c6i.xlarge（2 物理コア）→ c6a.2xlarge に再選定。live_server 融合（配信＋バックグラウンド学習）は
+> - live を c6i.xlarge（2 物理コア）→ c6a.2xlarge に再選定。live_server 融合（配信＋バックグラウンド学習）は
 >   表示の 240Hz 物理に1コア専有したいので 2 コアでは足りず、フレーム落ちが出るため（§8.3.1）。
 
-#### 8.3.1 デモ（配信＋学習融合）インスタンスの選定
+#### 8.3.1 live（配信＋学習融合）インスタンスの選定
 
 **選定軸（描画は視聴者のクライアントで行うので、サーバ負荷は物理＋配信＋学習のみ）**:
 
@@ -935,9 +935,9 @@ handler.py の `_resolve_instance_ids(event)` が payload 優先、未指定な�
   │  - Caddy (TLS, Let's Enc)  │
   │  - WebSocket Reverse Proxy │
   └────────┬──────────────────┘
-           │ 内部 VPC (SG: streamer → demo:8765)
+           │ 内部 VPC (SG: streamer → live:8765)
   ┌────────▼──────────────────┐
-  │ デモ EC2 c6a.2xlarge Spot  │ Private Subnet
+  │ live EC2 c6a.2xlarge Spot  │ Private Subnet
   │  - live_server.py (Docker) │
   └────────┬──────────────────┘
   ┌────────▼──────────────────┐
@@ -955,7 +955,7 @@ handler.py の `_resolve_instance_ids(event)` が payload 優先、未指定な�
        S3 / ECR / CloudWatch
 ```
 
-- **配信のみ Public Subnet**、学習・デモは Private
+- **配信のみ Public Subnet**、学習・live は Private
 - Private Subnet から AWS API へは Endpoint 経由（NAT Gateway 不採用）
 - TLS は Caddy + Let's Encrypt（無料・自動更新）
 
@@ -963,8 +963,8 @@ handler.py の `_resolve_instance_ids(event)` が payload 優先、未指定な�
 
 | SG | inbound | outbound |
 |---|---|---|
-| 配信 EC2 | 443/tcp from 0.0.0.0/0 (TLS) + 80 (ACME) | デモ EC2 8765, S3 |
-| デモ EC2 | 8765 from 配信 SG | S3, ECR endpoint, Logs endpoint |
+| 配信 EC2 | 443/tcp from 0.0.0.0/0 (TLS) + 80 (ACME) | live EC2 8765, S3 |
+| live EC2 | 8765 from 配信 SG | S3, ECR endpoint, Logs endpoint |
 | 学習 EC2 | (なし) | S3, ECR endpoint, Logs endpoint |
 | VPC Endpoint (vpce) SG | 443 from VPC CIDR | (なし) |
 
@@ -999,7 +999,7 @@ stop は terminate と違い EBS を保持するので、スナップショッ�
 
 | Image | Dockerfile | ベース | 用途 |
 |------|-----------|--------|------|
-| `block-stacker/demo` | `Dockerfile` | python:3.11-slim | デモ EC2 (`serving.live_server`) |
+| `block-stacker/live` | `Dockerfile` | python:3.11-slim | live EC2 (`serving.live_server`) |
 | `block-stacker/learner` | `Dockerfile.learner` | python:3.12-slim | 学習 EC2 (`training.train`) |
 
 両イメージとも **CPU torch wheel** を使用（GPU 不要）。配信 EC2 は Caddy をネイティブ実行（コンテナ化なし）。
@@ -1018,7 +1018,7 @@ stop は terminate と違い EBS を保持するので、スナップショッ�
 | 項目 | 単価 | 月額 |
 |---|---|---|
 | プリセット生成 c6a.4xlarge Spot (~1h/月) | $0.20/h × 1 | ¥30 |
-| デモ+学習 c6a.2xlarge Spot (176h) | ~$0.13/h × 176 | ¥3,435 |
+| live（配信＋学習） c6a.2xlarge Spot (176h) | ~$0.13/h × 176 | ¥3,435 |
 | 配信 t4g.small Spot (176h) | $0.007/h × 176 | ¥185 |
 | EBS gp3 180GB (稼働プロレート) | - | ¥314 |
 | ECR Endpoint × 2 + Logs × 1 (24/7) | $7.3/月 × 3 | ¥3,300 |
@@ -1027,7 +1027,7 @@ stop は terminate と違い EBS を保持するので、スナップショッ�
 | データ転送 (アウト) | - | ¥900 |
 | **合計** | | **約 ¥8,900/月 (年 ¥107,000)** |
 
-> デモは**推奨 c6a.2xlarge**前提（§8.3.1。最低 c6a.xlarge なら約 ¥7,600、最高 m7a.2xlarge なら約 ¥9,900）。
+> live は**推奨 c6a.2xlarge**前提（§8.3.1。最低 c6a.xlarge なら約 ¥7,600、最高 m7a.2xlarge なら約 ¥9,900）。
 > プリセット生成を月初 5k steps（~35分）に縮小したことで学習費は ¥480→¥30 に。
 > 稼働時間・頻度・インスタンス段階はいずれも暫定で、確定後に再計算する。
 
@@ -1051,7 +1051,7 @@ stop は terminate と違い EBS を保持するので、スナップショッ�
 | 通信 | 同期方式 | スリープ/ウェイク明示モデル |
 | 通信 | 送出レート | 60Hz（AWAKE blocks のみ） |
 | 通信 | タイムスタンプ | サーバ単調時間 |
-| サーバ | 構成 | 学習 EC2 / デモ EC2 / 配信 EC2 + S3 + VPC Endpoints |
+| サーバ | 構成 | 学習 EC2 / live EC2 / 配信 EC2 + S3 + VPC Endpoints |
 | サーバ | モデル共有 | S3 経由 |
 | サーバ | キャッシュ | **なし**（Redis 撤去、付録 D 復活条件参照） |
 | AI | アルゴリズム | **SAC** (Stable-Baselines3) + 自動エントロピー |
@@ -1075,9 +1075,9 @@ stop は terminate と違い EBS を保持するので、スナップショッ�
 | 物理 | 摩擦 | block-block 0.45 / block-ground 0.5 / block-wall 0.4 |
 | 物理 | キャリア拘束 | point2point、max_force 8N、軌道速度 0.3m/s |
 | AWS | リージョン | ap-northeast-1 (Tokyo) |
-| AWS | 稼働（暫定） | プリセット生成 月初1日 09:00・5k steps (~35分/月) / デモ+学習配信 平日 10-18 (176h/月) |
+| AWS | 稼働（暫定） | プリセット生成 月初1日 09:00・5k steps (~35分/月) / live（配信＋学習） 平日 10-18 (176h/月) |
 | AWS | 学習 | **c6a.4xlarge Spot (AMD EPYC, CPU-only)** |
-| AWS | デモ | c6a.2xlarge Spot（推奨。最低 c6a.xlarge / 最高 m7a.2xlarge、§8.3.1）|
+| AWS | live | c6a.2xlarge Spot（推奨。最低 c6a.xlarge / 最高 m7a.2xlarge、§8.3.1）|
 | AWS | 配信 | t4g.small Spot + Caddy（自動 TLS） |
 | AWS | LB | なし（EC2 + EIP + Caddy） |
 | AWS | スケジューラ | **EventBridge × 4 + Lambda 1 ペア（payload で対象インスタンス切替、start/stop）** |

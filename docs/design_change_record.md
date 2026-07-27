@@ -483,6 +483,38 @@ live_server のスナップショット（`replay_buffer.pkl` / `resume_state.js
 > 設計リファレンスとして意図的に残したもので、現行の `deploy/` とは差分がある
 > （`main.tf` 冒頭にその旨を明記）。
 
+### 5.6 本番インスタンスの呼称: `demo` → `live`
+
+旧称の「デモ EC2 / `demo`」は、**推論を再生するだけのデモ機**だった頃の名残。現在この EC2 は
+`serving.live_server` を回して**配信しながらバックグラウンドで学習を継続する本番機**であり、
+「デモ」は実態と合わなくなっていたため `live` に統一した。
+
+| 対象 | 旧 | 現行 |
+|---|---|---|
+| ECR リポジトリ | `block-stacker/demo` | `block-stacker/live` |
+| EC2 / LT / SG 名 | `bs-demo` / `bs-demo-lt` | `bs-live` / `bs-live-lt` |
+| user-data | `deploy/userdata/demo.sh` | `deploy/userdata/live.sh` |
+| SSM パラメータ | `/bs/demo/private_ip` | `/bs/live/private_ip` |
+| CloudWatch ロググループ | `/aws/ec2/bs-demo` | `/aws/ec2/bs-live` |
+| コンテナ名 | `docker run --name demo` | `--name live` |
+| Scheduler 名 | `bs-demo-start` / `-stop` | `bs-live-start` / `-stop` |
+| state.json キー | `sg_demo_id` / `instance_ids.demo` | `sg_live_id` / `instance_ids.live` |
+| `common.ps1` 変数 | `DemoType` | `LiveType` |
+
+> **既存環境がある場合**は改名だけでは追従しない。`state.json` の `sg_demo_id` /
+> `instance_ids.demo` は新スクリプトから読まれないため、キー名を手で書き換えるか
+> `./99_destroy.ps1` → 再作成する。ECR リポジトリと SSM パラメータも旧名のまま残る。
+
+**改名しなかった「demo」**（別物なので混同しないこと）:
+
+| 対象 | 何か |
+|---|---|
+| `src/block_stacker/serving/demo_server.py` | AI なしの物理のみデモサーバ。クライアント開発用に現役 |
+| `tools/demo_checkpoints.ps1` | ai_server による checkpoint 手動再生（開発用） |
+| `docs/local_demo.md` | ローカル試運転手順 |
+| `configs/training.yaml` の `demotion_enabled` | ステージ降格フラグ。文字列が偶然一致しているだけ |
+| `infra-terraform/` 一式 | 凍結された ASG 版参照実装（§5.5）。現行経路ではないので追従させない |
+
 ---
 
 ## 6. パッケージ名・パス

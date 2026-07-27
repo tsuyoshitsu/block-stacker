@@ -38,15 +38,15 @@ foreach ($f in "bs-scale-up", "bs-scale-down") {
 }
 
 # 3) EC2 インスタンス (terminate) -> Launch Templates
-Write-Step "Auto Scaling Groups"
+Write-Step "EC2 インスタンス (terminate)"
 if ($state.instance_ids) {
-    foreach ($n in $state.instance_ids.streamer, $state.instance_ids.demo, $state.instance_ids.learner) {
+    foreach ($n in $state.instance_ids.streamer, $state.instance_ids.live, $state.instance_ids.learner) {
         Try-Run { aws ec2 terminate-instances --instance-ids $n 2>&1 | Out-Null }
     }
 }
 
 Write-Step "Launch Templates"
-foreach ($k in "lt_streamer", "lt_demo", "lt_learner") {
+foreach ($k in "lt_streamer", "lt_live", "lt_learner") {
     if ($state[$k]) {
         Try-Run { aws ec2 delete-launch-template --launch-template-id $state[$k] 2>&1 | Out-Null }
     }
@@ -61,7 +61,7 @@ if ($state.sns_topic_arn) {
 
 # 5) Log groups
 Write-Step "Log Groups"
-foreach ($g in "/aws/ec2/bs-streamer", "/aws/ec2/bs-demo", "/aws/ec2/bs-learner",
+foreach ($g in "/aws/ec2/bs-streamer", "/aws/ec2/bs-live", "/aws/ec2/bs-learner",
                "/aws/lambda/bs-scale-up", "/aws/lambda/bs-scale-down") {
     Try-Run { aws logs delete-log-group --log-group-name $g 2>&1 | Out-Null }
 }
@@ -105,7 +105,7 @@ foreach ($r in "bs-ec2-role", "bs-lambda-role", "bs-scheduler-role") {
 
 # 8) SSM Parameters
 Write-Step "SSM Parameters"
-Try-Run { aws ssm delete-parameter --name "/bs/demo/private_ip" 2>&1 | Out-Null }
+Try-Run { aws ssm delete-parameter --name "/bs/live/private_ip" 2>&1 | Out-Null }
 
 # 9) VPC + 関連 (S3 + ECR endpoint, route table, subnet, IGW, SG, VPC)
 Write-Step "VPC 関連"
@@ -120,7 +120,7 @@ if ($state.public_rt_id) {
 if ($state.private_rt_id) {
     Try-Run { aws ec2 delete-route-table --route-table-id $state.private_rt_id 2>&1 | Out-Null }
 }
-foreach ($k in "sg_streamer_id", "sg_demo_id", "sg_learner_id", "sg_ecr_endpoint_id") {
+foreach ($k in "sg_streamer_id", "sg_live_id", "sg_learner_id", "sg_ecr_endpoint_id") {
     if ($state[$k]) {
         Try-Run { aws ec2 delete-security-group --group-id $state[$k] 2>&1 | Out-Null }
     }

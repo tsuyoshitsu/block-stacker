@@ -1,10 +1,10 @@
 # Step 70: Lambda (scale_up / scale_down) + EventBridge Scheduler (4 系統)。
 #
-# スケジュール構成（lambda/handler.py / infra-terraform/scheduler.tf と一致）:
+# スケジュール構成（lambda/handler.py と一致させること。時刻は暫定）:
 #   bs-learner-start  cron(0 0 1 * ? *)        payload {instance_ids: [learner]}
-#   bs-learner-stop   cron(0 13 ? * SAT#2,SAT#4 *) 同上
-#   bs-demo-start     cron(0 1 ? * MON-FRI *)  payload {instance_ids: [demo, streamer]}
-#   bs-demo-stop      cron(0 13 ? * MON-FRI *)      同上
+#   bs-learner-stop   cron(0 2 1 * ? *)        同上（完了で self-stop、この cron は保険）
+#   bs-live-start     cron(0 1 ? * MON-FRI *)  payload {instance_ids: [live, streamer]}
+#   bs-live-stop      cron(0 9 ? * MON-FRI *)  同上
 
 . $PSScriptRoot/common.ps1
 
@@ -18,7 +18,7 @@ if (-not ($lambdaRole -and $schedRole -and $instanceIds)) {
     throw "40_iam / 60_ec2 を先に実行してください"
 }
 
-$idList = @($instanceIds.streamer, $instanceIds.demo, $instanceIds.learner)
+$idList = @($instanceIds.streamer, $instanceIds.live, $instanceIds.learner)
 $idEnvJson = ($idList | ConvertTo-Json -Compress).Replace('"', '\"')
 
 # --------------------------------------------------------------------
@@ -114,9 +114,9 @@ function Deploy-Schedule {
 Deploy-Schedule "bs-learner-start" "cron(0 0 1 * ? *)"      $arnUp   @($instanceIds.learner)
 Deploy-Schedule "bs-learner-stop"  "cron(0 2 1 * ? *)"      $arnDown @($instanceIds.learner)
 
-# デモ + 配信: 平日 14-22 JST (= 05:00-13:00 UTC, MON-FRI)
-Deploy-Schedule "bs-demo-start" "cron(0 1 ? * MON-FRI *)" $arnUp   @($instanceIds.demo, $instanceIds.streamer)
-Deploy-Schedule "bs-demo-stop"  "cron(0 9 ? * MON-FRI *)" $arnDown @($instanceIds.demo, $instanceIds.streamer)
+# live + 配信: 平日 10-18 JST (= 01:00-09:00 UTC, MON-FRI)
+Deploy-Schedule "bs-live-start" "cron(0 1 ? * MON-FRI *)" $arnUp   @($instanceIds.live, $instanceIds.streamer)
+Deploy-Schedule "bs-live-stop"  "cron(0 9 ? * MON-FRI *)" $arnDown @($instanceIds.live, $instanceIds.streamer)
 
 # 旧スケジュール (bs-start / bs-stop) が残っていたら削除
 foreach ($old in "bs-start", "bs-stop") {
@@ -130,4 +130,4 @@ foreach ($old in "bs-start", "bs-stop") {
 Write-Host ""
 Write-Host "[bs] 70_lambda 完了" -ForegroundColor Green
 Write-Host "  学習     : 隔週土曜 14-22 JST (月 16h)" -ForegroundColor DarkGray
-Write-Host "  デモ+配信: 平日   14-22 JST (月 176h, 祝日除く)" -ForegroundColor DarkGray
+Write-Host "  live+配信: 平日   10-18 JST (月 176h, 祝日除く)" -ForegroundColor DarkGray

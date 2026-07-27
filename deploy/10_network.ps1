@@ -117,7 +117,7 @@ function New-Sg([string]$Name, [string]$Description) {
 }
 
 $streamerSg = New-Sg "streamer" "Caddy + WS reverse proxy"
-$demoSg     = New-Sg "demo"     "Demo server (ai_server :8765)"
+$liveSg     = New-Sg "live"     "Live server (live_server :8765, 配信+学習)"
 $learnerSg  = New-Sg "learner"  "Learner (S3 only, no inbound)"
 $vpceSg     = New-Sg "vpce"     "VPC Interface Endpoints (HTTPS from VPC CIDR)"
 
@@ -143,12 +143,12 @@ if (-not $has80) {
         --protocol tcp --port 80 --cidr "0.0.0.0/0" | Out-Null
 }
 
-# Demo: 8765 from streamer SG
-Write-Step "Demo SG: 8765 from streamer SG"
-$existing = aws ec2 describe-security-groups --group-ids $demoSg --query "SecurityGroups[0].IpPermissions" --output json | ConvertFrom-Json
+# Live: 8765 from streamer SG
+Write-Step "Live SG: 8765 from streamer SG"
+$existing = aws ec2 describe-security-groups --group-ids $liveSg --query "SecurityGroups[0].IpPermissions" --output json | ConvertFrom-Json
 $has8765 = $existing | Where-Object { $_.FromPort -eq 8765 }
 if (-not $has8765) {
-    aws ec2 authorize-security-group-ingress --group-id $demoSg `
+    aws ec2 authorize-security-group-ingress --group-id $liveSg `
         --protocol tcp --port 8765 --source-group $streamerSg | Out-Null
 }
 

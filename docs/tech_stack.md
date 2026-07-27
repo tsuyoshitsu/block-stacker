@@ -180,7 +180,7 @@ AWS が提供する仮想サーバ（EC2）。Spot インスタンスは AWS の
 | ロール | インスタンス種別 | vCPU / アーキ | 用途 |
 |---|---|---|---|
 | 配信（streamer） | t4g.small | 2 vCPU / ARM | WebSocket 配信サーバ |
-| デモ（demo） | c6a.2xlarge | 8 vCPU / 4コア / AMD | 配信 + バックグラウンド学習（融合）|
+| live | c6a.2xlarge | 8 vCPU / 4コア / AMD | 配信 + バックグラウンド学習（融合）|
 | 学習（learner） | c6a.4xlarge | 16 vCPU / AMD EPYC | SAC バックグラウンド学習 |
 
 - **採用理由**: NN のサイズが小さく PyBullet が CPU バウンドであるため GPU インスタンス（g4dn 等）は過剰投資と判断。AMD EPYC CPU（c6a）は g4dn 比で約 40% コスト削減。ARM（t4g）は配信サーバの軽い CPU 負荷に合わせたコスト最適化。
@@ -196,15 +196,17 @@ AWS が提供する仮想サーバ（EC2）。Spot インスタンスは AWS の
 
 時刻を指定して Lambda などを自動実行するサービス。cron 式でスケジュールを記述できる。
 
-- **用途**: 学習 EC2（隔週土曜 14-22 JST）とデモ・配信 EC2（平日 14-22 JST）の自動起動・停止スケジュールを管理（`infra-terraform/scheduler.tf`）。Lambda 1 ペアを複数スケジュールで共有し、payload の `asg_names` で対象 ASG を切り替える設計。
+- **用途**: 学習 EC2（月初のプリセット生成）と live・配信 EC2（平日 10-18 JST）の自動起動・停止スケジュールを管理（`deploy/70_lambda.ps1`）。Lambda 1 ペアを複数スケジュールで共有し、payload の `instance_ids` で対象インスタンスを切り替える設計。
 - **採用理由**: cron 式でスケジュールを Terraform コードとして管理でき、変更・レビューが容易。
 
 ### AWS Auto Scaling Group（ASG）
 
 EC2 インスタンスの台数を自動管理するサービス。`desired_capacity` を変えるだけで起動・停止が自動化される。
 
-- **用途**: streamer / demo / learner の 3 ASG を定義（`infra-terraform/ec2.tf`）。平常時は `desired_capacity=0` で停止、稼働時間中は Lambda が `1` に変更。`capacity-optimized` 戦略で Spot 強制中断を最小化。
-- **採用理由**: 起動・停止を ASG に委ねることで、インスタンス障害時の自動復旧（`health_check_type = "EC2"`）も同時に実現できる。
+- **現行では未使用（撤去済み）**: min=0/max=1 でスケールしておらず実態が「起動/停止スイッチ」だったため、
+  単一 EC2 の start/stop（`ec2:StartInstances` / `StopInstances`）に置き換えた。経緯は `docs/design_change_record.md`。
+- **参照用に残る定義**: `infra-terraform/ec2.tf`（ASG 版。凍結された参照実装で現行経路ではない）。
+- **手放した機能**: Spot 在庫切れ時のインスタンスタイプ自動フォールバックと中断後の自動再起動。手動対応する（`docs/aws_deployment.md` §8）。
 
 ### AWS S3（Simple Storage Service）
 
@@ -291,7 +293,7 @@ Python から AWS の各サービスを操作するための公式 SDK。
 
 日本の祝日を判定する Python ライブラリ。
 
-- **用途**: `lambda/handler.py` の `scale_up` 関数内で使用。祝日は学習・デモの起動をスキップするロジックに使用。
+- **用途**: `lambda/handler.py` の `scale_up` 関数内で使用。祝日は live の起動をスキップするロジックに使用。
 - **採用理由**: 日本市場向けのサービスのため祝日スキップが必要。軽量な pure-Python ライブラリで Lambda への同梱が容易。
 
 ---
