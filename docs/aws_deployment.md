@@ -36,9 +36,9 @@
 | 項目 | 内容 |
 |---|---|
 | リージョン | ap-northeast-1 (Tokyo) |
-| 稼働日時 | **学習: 隔週土曜 14-22 JST (月 16h)** / **デモ+配信: 平日 14-22 JST (月 176h、祝日除く)** （**暫定・調整中**） |
+| 稼働日時（**暫定**） | **プリセット生成: 月初1日 09:00 JST・10k steps (~1h)** / **デモ+学習配信: 平日 10-18 JST (月 176h、祝日除く)** |
 | 学習 EC2 | `c6a.4xlarge` Spot（AMD EPYC, CPU-only, 8 物理コア） |
-| デモ EC2 | `c6i.xlarge` Spot |
+| デモ EC2 | `c6a.2xlarge` Spot（推奨。最低 c6a.xlarge / 最高 m7a.2xlarge、選定根拠は design.md §8.3.1）|
 | 配信 EC2 | `t4g.small` Spot + Caddy（自動 TLS） |
 | クライアント | Godot 4.4.1 .NET 版 + C# (`WsClient.cs`)、視聴者の PC で実行 |
 | ロードバランサ | なし（EC2 + EIP + Caddy） |
@@ -48,7 +48,7 @@
 | キャッシュ | なし（現状 Redis 不要。導入条件は付録 D） |
 | スケジューラ | EventBridge × 4 + Lambda 1 ペア（payload で対象 ASG 切替、`jpholiday` で祝日判定） |
 | Private 通信 | S3 Gateway + ECR/Logs Interface Endpoint × 3（NAT 不使用） |
-| 想定月額 | **約 ¥7,765**（年 ¥93,000、§コスト管理参照） |
+| 想定月額（暫定） | **約 ¥8,900**（年 ¥107,000、推奨 c6a.2xlarge 前提。§コスト管理参照） |
 
 ### アーキテクチャ
 
@@ -72,7 +72,7 @@
    ┌──────────────────────────────────────────────────┐
    │ Private Subnet (10.10.2.0/24)                    │
    │   ┌────────────────────────────────┐             │
-   │   │ デモ EC2 c6i.xlarge Spot        │             │
+   │   │ デモ EC2 c6a.2xlarge Spot       │             │
    │   │   - live_server.py (Docker)     │             │
    │   │   - WebSocket :8765 (in-process)│             │
    │   └────────────────────────────────┘             │
@@ -269,7 +269,7 @@ cd C:\Users\iii03\block-stacker\lambda
 > （`Dockerfile.learner` の `CMD` でも明示）。Stage 1→4 を**固定ステップ制**で進行する
 > （`--target-stage 4` 既定＝走るステージの上限。`--target-stage 5` で Stage 5 まで）。
 > **卒業判定は無い**ので、各ステージは `stages[].steps` の予算どおり走って次へ進む。
-> 総手数はステージ予算の合計で決まる（既定 Stage 1-4 で 180,000）＝起動時間・コストが見積もれる。
+> 総手数はステージ予算の合計で決まる（既定 Stage 1-4 で 165,000）＝起動時間・コストが見積もれる。
 > 予算は `--stage-steps`（一括 or ステージ別）で上書き可。
 > 成果は全ステージ走破後の `fresh/sac_*_steps.zip` **1 本**を S3 に保存する（`sac_final.zip` は廃止）。
 > Stage 1 のみに戻すなら `CMD` に `--no-curriculum` を渡す（既定 ON なので `--curriculum` を外すだけでは無効化されない）。
@@ -371,19 +371,19 @@ EventBridge Scheduler 4 系統で、ASG ごとに別スケジュール：
 
 | Scheduler | 発火 (UTC) | JST 時刻 | 対象 ASG | payload |
 |----------|---------|---------|---------|---------|
-| `bs-learner-start` | `cron(0 5 ? * SAT#2,SAT#4 *)` | 第 2/4 土曜 14:00 | bs-learner-asg | `{"asg_names": ["bs-learner-asg"]}` |
-| `bs-learner-stop`  | `cron(0 13 ? * SAT#2,SAT#4 *)`| 第 2/4 土曜 22:00 | 同上 | 同上 |
-| `bs-demo-start`    | `cron(0 5 ? * MON-FRI *)` | 月〜金 14:00 | bs-demo-asg + bs-streamer-asg | `{"asg_names": ["bs-demo-asg", "bs-streamer-asg"]}` |
-| `bs-demo-stop`     | `cron(0 13 ? * MON-FRI *)`| 月〜金 22:00 | 同上 | 同上 |
+| `bs-learner-start` | `cron(0 0 1 * ? *)` | 毎月 1 日 09:00 | bs-learner-asg | `{"asg_names": ["bs-learner-asg"]}` |
+| `bs-learner-stop`  | `cron(0 2 1 * ? *)`| 毎月 1 日 11:00（完了で self-stop、cron は保険）| 同上 | 同上 |
+| `bs-demo-start`    | `cron(0 1 ? * MON-FRI *)` | 月〜金 10:00 | bs-demo-asg + bs-streamer-asg | `{"asg_names": ["bs-demo-asg", "bs-streamer-asg"]}` |
+| `bs-demo-stop`     | `cron(0 9 ? * MON-FRI *)`| 月〜金 18:00 | 同上 | 同上 |
 
 Lambda は 1 ペア（`bs-scale-up` / `bs-scale-down`）を 4 スケジュールが共有し、payload で対象 ASG を切り替える設計。
 
-祝日は `bs-scale-up` 内の `jpholiday.is_holiday()` で skip（学習側にも適用される。第 2/4 土曜が祝日になった場合はその週の学習はスキップ）。
+祝日は `bs-scale-up` 内の `jpholiday.is_holiday()` で skip（デモ+配信に適用。月初のプリセット生成が祝日と重なった場合の扱いは運用時に調整）。
 
 **運用パターン（暫定・調整中）:**
-- 平日 14-22 JST: デモ + 配信のみ稼働、誰でも観られる時間帯
-- 隔週土曜 14-22 JST: 学習のみ稼働（デモは停止）
-- 学習で生成したモデルは S3 に保存、翌週月曜のデモ起動時に取り込まれる
+- 平日 10-18 JST: デモ EC2 が live_server で**配信＋バックグラウンド学習**（融合）。誰でも観られる
+- 月初 1 日 午前: プリセット生成（Stage 3 のみ 10k steps・約1h）でその月のシードを作る
+- 月初のプリセット生成モデルは S3 に保存され、以降デモ EC2 が live_server で日々引き継いで学習する
 - ローカル学習をメインにする場合、`bs-learner-*` の Scheduler を無効化または削除可（学習 EC2 は手動 invoke で気が向いたタイミングだけ起動）
 
 ### 6.2 設定変更を反映
@@ -528,18 +528,18 @@ aws budgets create-budget --account-id $ACCOUNT --budget "file://$($tmp.FullName
 Remove-Item $tmp
 ```
 
-想定 $51 (¥7,650) に対し $70 (¥10,500) で警告。
+想定 約 $59 (¥8,900) に対し $70 (¥10,500) で警告（**推奨=c6a.2xlarge 前提**。最低 c6a.xlarge なら約 $51、最高 m7a.2xlarge なら約 $66）。
 
 ### 内訳
 
 為替前提: 1 USD = ¥150（円換算の参考値、実請求は時点レート × USD で確定）。
 
-稼働時間（暫定・調整中）: 学習 16h/月（隔週土曜 14-22 JST）、デモ + 配信 176h/月（平日 14-22 JST、祝日除く）
+稼働時間（暫定）: プリセット生成 ~1h/月（月初 10k steps）、デモ+学習配信 176h/月（平日 10-18 JST、祝日除く）
 
 | 項目 | USD/月 | ¥/月 |
 |---|---|---|
-| 学習 c6a.4xlarge Spot (16h × $0.20) | $3.2 | ¥480 |
-| デモ c6i.xlarge Spot (176h × $0.07) | $12.3 | ¥1,848 |
+| プリセット生成 c6a.4xlarge Spot (~1h × $0.20) | $0.2 | ¥30 |
+| デモ c6a.2xlarge Spot (176h × ~$0.13) | $22.9 | ¥3,435 |
 | 配信 t4g.small Spot (176h × $0.007) | $1.2 | ¥185 |
 | EBS gp3 180GB（稼働時間プロレート） | $2.1 | ¥314 |
 | ECR Interface Endpoint × 2 + Logs × 1 | $22 | ¥3,300 |
@@ -547,9 +547,14 @@ Remove-Item $tmp
 | Route 53 hosted zone | $0.5 | ¥75 |
 | S3 + CloudWatch Logs | $1.7 | ¥255 |
 | データ転送（視聴時間 2.6 倍想定） | $6 | ¥900 |
-| **合計** | **約 $51** | **約 ¥7,765** |
+| **合計** | **約 $59** | **約 ¥8,900** |
 
-旧スケジュール（土日 14-22 で全 ASG 一括）から **学習 1/4、デモ+配信 2.6 倍** に再配分した結果。
+> デモ行は**推奨 c6a.2xlarge**。段階を変えると合計が動く（最低 c6a.xlarge: -¥1,300 → 約 ¥7,600、
+> 最高 m7a.2xlarge: +¥1,000 → 約 ¥9,900）。3 段階の根拠は design.md §8.3.1。
+> プリセット生成を月初 10k（~1h）に縮小したことで旧「学習 16h ¥480」→ ¥30。
+
+旧運用（隔週土曜フルカリキュラム学習 16h/月）から、**プリセット生成を月初 10k steps に縮小**し、
+学習の主体を live_server の平日連続学習へ移した結果。
 月額はほぼ据置だが、視聴機会が **2.6 倍** に増加。学習頻度は減るので、ローカルでの学習併用が前提。
 
 > 注: Interface Endpoint 3 個（ecr.api + ecr.dkr + logs）は **稼働時間外も 24/7 課金される**ため、月額の約 43% を占める最大費用項目。設計上の意図的な選択（付録 E §3 参照）。
@@ -851,9 +856,10 @@ S3 ストレージコスト微少、転送料も微少。
 
 ### F.2 起動オフ期間中の重み減衰（sleep decay）
 
-> **✅ ローカル学習では実装済み**（`training/train.py` の `--resume` 機能）。`resume_state.json`
+> **✅ ローカルでは実装済み**（live_server のスナップショット引き継ぎ）。`resume_state.json`
 > の `timestamp` から経過日数を自動算出し、`global_step += elapsed_days × steps_per_day` で
 > 全記憶を一括減衰。`configs/training.yaml` の `resume.steps_per_day`（既定 5000）で強度調整可。
+> **`train.py` の `--resume` は撤去済み**（学習 run は毎回ゼロから）。この減衰を使うのは live_server のみ。
 > AWS 側（learner.sh での S3 連携）は未実装（F.1 の S3 実装と合わせて対応）。
 
 **何ができるか:** EC2 が止まっている時間（金曜夜〜土曜昼など）も、**現実時間の
@@ -861,7 +867,7 @@ S3 ストレージコスト微少、転送料も微少。
 
 **実装済みの方式:**
 - `resume_state.json` に `timestamp` を保存（学習終了時刻）
-- `--resume` 時に現在時刻との差を日数換算し `elapsed_days × steps_per_day` だけ `global_step` を加算
+- live_server 起動時に現在時刻との差を日数換算し `elapsed_days × steps_per_day` だけ `global_step` を加算
 - 全エントリの重みを一括減衰（`decay_rate^elapsed_steps` ≈ 7 日で 0.03 程度）
 
 **子供メタファー的意義:** 「**人間の脳科学的にも正しい設計**」
@@ -977,10 +983,10 @@ memory_system:
 
 ---
 
-### F.9 学習頻度の変更（隔週学習など）
+### F.9 学習頻度・シード生成の調整
 
-**何ができるか:** 現状の「隔週土曜 14:00〜22:00」をさらに「月 1 回」などに
-変更。学習コストをさらに削減する。
+**何ができるか:** 現状（暫定）は「月初 1 回・Stage3 のみ 10k steps でシード生成」＋「平日 live_server 連続学習」。
+シードのステップ数・頻度、平日学習の 8h 枠を運用実績を見て調整する。
 
 **前提:** F.1（記憶永続化）が実装されていれば、間が空いても学習を引き継げる。
 **判断:** 必要に応じて運用判断として検討。
@@ -1033,7 +1039,7 @@ memory_system:
 ```
 
 - `--n-envs 6`: 物理コア数に合わせる（クラウドは 8、ローカルは 4〜6）
-- `--target-stage 4`: 走るステージの上限（既定）。総手数は `stages[].steps` の合計＝既定 180,000。`--stage-steps` で上書き可
+- `--target-stage 4`: 走るステージの上限（既定）。総手数は `stages[].steps` の合計＝既定 165,000。`--stage-steps` で上書き可
 - `output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` が全ステージ走破後に **1 本**保存される（ステージ番号はファイル名に含まれない。`sac_final.zip` は廃止）
 
 ### G.2 TensorBoard で学習曲線を見る（別ターミナル）
@@ -1089,7 +1095,7 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 | アルゴリズム実験 | ◎ 主力 | △ |
 | ハイパラ調整 | ◎ tensorboard で即確認 | △ |
 | Checkpoint 比較・成長観察 | ◎ tools/demo_checkpoints.ps1 | △ |
-| 長時間連続学習 | △ 電気代・熱 | ○ 隔週土曜 8h を自動化 |
+| 長時間連続学習 | △ 電気代・熱 | ○ 平日 8h の live_server 連続学習を自動化 |
 | 一般視聴者向け配信 | × wss / TLS が無い | ◎ Caddy で配信 |
 | デモの長時間運転 | △ | ◎ 平日 8h × 22 日 = 176h/月 |
 
@@ -1160,7 +1166,7 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 - [ ] AWS Budgets 設定 (`docs/aws_deployment.md` §C 参照、$70 想定)
 - [ ] desired=0 に戻して停止確認
 - [ ] 翌平日に `bs-demo-start` が自動起動するのを確認
-- [ ] 翌第 2 土曜に `bs-learner-start` が自動起動するのを確認
+- [ ] 翌月初 1 日に `bs-learner-start`（プリセット生成）が自動起動するのを確認
 
 ---
 

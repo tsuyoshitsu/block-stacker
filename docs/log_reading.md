@@ -46,12 +46,12 @@
 ```
 pybullet build time: May 30 2026 15:47:27           ← 物理シミュの起動（動かす環境の数だけ出る）
 2026-... [training.train] SAC (curriculum)
-2026-... [training.train] Curriculum: 固定ステップ制（卒業判定なし）。ステージ予算 {1: 60000, 2: 35000, 3: 40000, 4: 45000} (合計 180000)
+2026-... [training.train] Curriculum: 固定ステップ制（卒業判定なし）。ステージ予算 {1: 60000, 2: 35000, 3: 10000, 4: 60000} (合計 165000)
 2026-... [training.train] === Stage 1: Stage 1: cube だけ・低い目標 ===
 2026-... [training.train] Inventory: {'cube': 8}, target_height=0.240 (=満積み×0.60), h_high=0.075, h_low=0.025        ← この段階で使うブロック（cube 8 個）
-2026-... [training.train] Total timesteps (全ステージ合計の上限): 180000, n_envs: 6, subproc=True, stm_length=5
+2026-... [training.train] Total timesteps (全ステージ合計の上限): 165000, n_envs: 6, subproc=True, stm_length=5
 2026-... [training.train] Memory system enabled: True   ← 記憶のしくみが ON
-2026-... [training.train] Beginning training (stage 1; このステージ 60000 steps / 通算 0 → 60000 / 全体 180000)...
+2026-... [training.train] Beginning training (stage 1; このステージ 60000 steps / 通算 0 → 60000 / 全体 165000)...
 Using cpu device                                    ← CPU で計算している
 Logging to output\training\tb\SAC_1                     ← グラフ用データ（カリキュラムを通して連続）
    …（学習が進む。数値のまとめ表が繰り返し出る → §1-2）…
@@ -153,6 +153,13 @@ Logging to output\training\tb\SAC_1                     ← グラフ用デー�
 
 > **ひとめ早見**: `total_timesteps` と `n_updates` が増え続け、`critic_loss` が急増せず、
 > `ent_coef` がゆっくり下がっていれば順調。`nan`（計算が壊れたサイン）が出たら異常。
+
+> **過去にあった発散（解消済み）**: かつて `ent_coef` が 0.03 まで下がった後に**反転して 6315 まで暴走**し、
+> `critic_loss` が 2.17e15 に達する発散があった。原因は SAC のハイパーパラメータではなく、
+> **卒業判定の誤検出**（実力ゼロのまま最難ステージへ飛ばされ、報酬を得られず方策が潰れた）。
+> 卒業判定の撤去で解消し、同条件の再実行では `critic_loss` 最大 5.11 に収まった。
+> 経緯は [`design_change_record.md`](design_change_record.md) §1.2.1。
+> 現在同じ兆候（`ent_coef` が下げ止まった後に上昇し始める）を見たら、別要因を疑うこと。
 
 ### 1-3. 保存と終了
 

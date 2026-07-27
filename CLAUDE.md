@@ -34,14 +34,15 @@ PyBullet 物理シムの結果を WebSocket で Godot クライアントに配�
 - Godot クライアントの C# ビルドには **.NET 8 SDK（x64）**が必要: `dotnet build client/block-stacker-client.csproj`。
 
 ## 実行
-- 学習（カリキュラム既定 ON, Stage 1→4 を**固定ステップ数**で進行）:
-  `.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 6`
+- 学習（カリキュラム既定 ON, Stage 1→4 を**固定ステップ数**で進行。n_envs は既定 1）:
+  `.venv\Scripts\python.exe -m block_stacker.training.train`
   - **卒業判定は廃止**。各ステージは決められたステップ数だけ走り、成績によらず次へ進む
     （旧「散布0で即卒業」は誤検出するため撤去。経緯は `docs/design_change_record.md`）。
   - ステージ予算は `configs/training.yaml` の `curriculum.stages[].steps`。既定は
-    60k / 35k / 25k / 60k / 70k（Stage 1〜5, 合計 25万。既定範囲 Stage 1-4 は 18万）。
-    Stage 1（ゼロから）と Stage 4/5（斜面・曲面という質的に新しい難しさ）が重い。
-    **実測 2 steps/秒**なので 18万 ≈ 25時間。増やすと所要時間が比例して伸びる。
+    60k / 35k / 10k / 60k / 70k（Stage 1〜5, 合計 23.5万。既定範囲 Stage 1-4 は 16.5万）。
+    Stage 1（ゼロから）と Stage 4/5（斜面・曲面）が重い。**Stage 3=10k はプリセット生成の
+    標準ステップ数を兼ねる**（壁の手前で止める。全 run では短いので --stage-steps 上書き前提）。
+    **n_envs=1 実測 約2.5 steps/秒**なので 16.5万 ≈ 18時間。
   - `--stage-steps`: 予算の上書き。単一値なら一括（`--stage-steps 100000`）、
     カンマ区切りなら実行ステージへ順に割当（`--stage-steps 60000,35000,40000`）。要素数不一致はエラー。
   - `--total-timesteps` は**全体の安全上限**。無指定なら `sac.total_timesteps`（既定 null）→
@@ -59,14 +60,13 @@ PyBullet 物理シムの結果を WebSocket で Godot クライアントに配�
   - 学習完了時に **`output/training/replay_buffer.pkl`**（長期記憶）と **`output/training/resume_state.json`**
     が自動保存される。これらは **live_server がスナップショット引き継ぎに使う**
     （train 側の `--resume` は廃止済み。学習の再開はできない＝毎 run ゼロから）。
-- **プリセット生成の標準レシピ（Stage 3 のみ・12,000 steps）**:
-  `.venv\Scripts\python.exe -m block_stacker.training.train --start-stage 3 --target-stage 3 --stage-steps 12000`
+- **プリセット生成の標準レシピ（Stage 3 のみ・10,000 steps＝Stage3 の既定）**:
+  `.venv\Scripts\python.exe -m block_stacker.training.train --start-stage 3 --target-stage 3`
   - コンセプト（不出来さを残しライブを長く楽しむ）に基づき、**わざと壁の手前で止める**。
-  - 実測（2026-07-20 の中断 run）で **Stage 3 は step 12,000〜15,000 に「不器用→習得」の壁**があり、
-    30,000 まで走らせると success_rate 0.97・高さ 0.607m の「上手すぎる」モデルになった。
-    12,000 で止めると ep_rew はまだマイナス・success_rate 0.00・高さ 0.086m の「掴む・運ぶは
-    できるが積めない子供」になる。ライブ（Stage 5）では未知形状に手こずり不出来さが残る。
-  - n_envs=1 実測 **約 2.5 steps/秒**（gradient_steps=1 で学習側が軽い）→ **約 1.3 時間**。
+  - 実測で **Stage 3 は step 12,000〜15,000 に「不器用→習得」の壁**があり、30,000 まで走らせると
+    success_rate 0.97 の「上手すぎる」モデルに。**10,000 で壁の手前に止める**と ep_rew マイナス・
+    success_rate 0.00・高さ 0.12m の「掴む・運ぶはできるが積めない子供」になる。
+  - `--stage-steps` 不要（Stage 3 の既定が 10,000）。n_envs=1 実測 約2.5 steps/秒 → **約 1.1 時間**。
   - **Stage 3 ゼロ開始でも学習は立ち上がる**（掴む→運ぶ→積むを土台なしで獲得できると実測確認）。
 - **学習中はクライアントから見られない**（`training.train` は WebSocket を持たず、モデルも
   走破後まで書き出されない）。学習しながら見たいなら `live_server`（下記）を使う。

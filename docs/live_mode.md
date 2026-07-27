@@ -18,46 +18,44 @@
 
 `live_server.py` はランダム初期化モデルから直接起動できません。
 ランダム重みでは積み木を全く積めず、視聴に値する行動が取れないためです。
-**最低でも Stage 4（cube + cuboid + triangular_prism）、理想は Stage 5 到達済み**の
-checkpoint を用意してから live_server を起動してください。
+**標準は Stage 3 のみ 10k steps のプリセット**（掴む・運ぶはできるが積めない「不器用な子供」）。
+コンセプト上わざと不出来さを残すので、Stage 4/5 まで仕上げる必要はない。
 
 ### 手順: train.py でプリセットを生成する
 
-既定では Stage 1→4 を**固定ステップ制**（各ステージの予算どおり）で走り切り、
-最後にプリセットが `fresh/` に保存されます。**卒業判定は廃止されました**
-（経緯は [`docs/design_change_record.md`](design_change_record.md) §1.2.1）。
+進行は**固定ステップ制**で、各ステージは `stages[].steps` を消化したら**成績によらず**次へ進みます
+（**卒業判定は廃止**。経緯は [`docs/design_change_record.md`](design_change_record.md) §1.2.1）。
+走り切った時点でプリセットが `fresh/` に 1 本保存されます。
+
+> **標準は下の 1 本目（Stage 3 のみ）**。ただし**ステージ範囲は既定ではない**ので
+> `--start-stage 3 --target-stage 3` の明示が必要（既定は `start=1 / target=4`）。
 
 ```powershell
-# ---- Stage 1→4（既定動作）----
-# c6a.4xlarge (16vCPU, AMD) 推奨
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 8
-# ステージ予算は configs/training.yaml の stages[].steps（既定 合計 180,000 = Stage 1-4、約25時間）
+# ---- ライブ用プリセット（標準・Stage 3 のみ 10k＝Stage3 の既定、約1.1h）----
+.venv\Scripts\python.exe -m block_stacker.training.train --start-stage 3 --target-stage 3
 
-# ---- Stage 5（全形状）まで走らせたい場合 ----
-.venv\Scripts\python.exe -m block_stacker.training.train `
-    --n-envs 8 `
-    --target-stage 5
-# 合計 250,000 steps（約35時間）
+# ---- 全 Stage 1→4 を回す場合（n_envs は既定 1。合計 165,000 = 約18時間）----
+.venv\Scripts\python.exe -m block_stacker.training.train
 
-# ---- 予算を短縮して試す ----
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 8 --stage-steps 100000
+# ---- Stage 5（全形状）まで（合計 235,000 = 約26時間）----
+.venv\Scripts\python.exe -m block_stacker.training.train --target-stage 5
 
 # 生成物（いずれも同じ場所）:
-#   output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip  ← NN 重み（定期＋最後のプリセット）
+#   output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip  ← NN 重み（プリセット1本のみ）
 #   output/training/replay_buffer.pkl                               ← 長期記憶
 #   output/training/resume_state.json                               ← カリキュラム進捗
 ```
 
-既定（`--target-stage 4`）では Stage 4 まで走り切った時点で `fresh/` へプリセットが保存され、
-`resume_state.json` の `next_stage_id` が `4` になります。
+走り切った時点で `fresh/` へプリセットが保存され、`resume_state.json` に到達ステージが記録されます
+（`--target-stage` は「走る範囲の上限」であって、到達で終了する条件ではありません）。
 
 ```json
-// resume_state.json 例（既定の Stage 1→4 を走り切った場合）
+// resume_state.json 例（標準レシピ: Stage 3 のみ 10k）
 {
-  "num_timesteps": 340000,
-  "next_stage_id": 4,
-  "completed_stages": [1, 2, 3, 4],
-  "timestamp": "2026-07-13T14:00:00"
+  "num_timesteps": 10000,
+  "next_stage_id": 3,
+  "completed_stages": [3],
+  "timestamp": "2026-07-21T09:41:19"
 }
 ```
 
@@ -73,11 +71,11 @@ checkpoint を用意してから live_server を起動してください。
 
 ### 最低限の目安
 
-| 状態 | live_server 利用可否 | 説明 |
+| プリセット | 位置づけ | 説明 |
 |---|---|---|
-| Stage 1-3 のみ | △ (非推奨) | 動作はするが、円柱・三角柱が出現する Stage 5 の世界で機能しない |
-| Stage 4 到達 | ○ | 三角柱まで学習済み。円柱の扱いは拾い学習に頼る |
-| Stage 5 到達 (推奨) | ◎ | 全 4 形状を学習済み。視聴映えする行動が期待できる |
+| **Stage 3 のみ 10k（標準）** | ◎ 本線 | 掴む・運ぶはできるが積めない。Stage 5 の世界で未知形状に手こずる「不出来さ」が残る |
+| Stage 4 到達 | ○ | 三角柱まで学習済み。より器用になる |
+| Stage 5 到達 | ○（上手すぎ注意）| 全形状習得。コンセプト（不出来さ）とはやや逆方向 |
 
 ---
 
@@ -88,11 +86,24 @@ checkpoint を用意してから live_server を起動してください。
 ```powershell
 .venv\Scripts\python.exe -m block_stacker.serving.live_server `
     --snapshot-dir output/training `
-    --n-envs 2 `
+    --n-envs 1 `
+    --sync-every 50 `
     --duration 28800
 # --n-envs 0 なら配信のみ（学習なし）
 # --duration 0 なら無制限
 ```
+
+> ⚠️ **推奨実行値は `--n-envs 1 --sync-every 50`。コード既定（`--n-envs 4` / `--sync-every 500`）
+> とはズレているので、必ず明示すること。**
+>
+> - **`--n-envs` はスナップショットを作った時の n_envs と一致必須**。学習は `set_env()` で env を
+>   差し替えるが、SAC はモデルの n_envs と env 数が違うと `AssertionError` を投げる。
+>   このとき**学習スレッドだけが落ちて配信は生き残る**ため、
+>   「配信は動いているのに賢くならない」状態に気づきにくい。
+>   `configs/training.yaml` の `sac.n_envs`（既定 **1**）で学習したプリセットなら `--n-envs 1`。
+>   ログに `[train] background training thread crashed` が出ていないか必ず確認する。
+> - **`--sync-every 500`（既定）は反映が粗い**。50 にすると学習成果が 10 倍こまめに表示へ乗る。
+> - コード既定値は未変更（このズレは docs 側で吸収している）。
 
 `--snapshot-dir` 配下の `fresh/` または `played/` にある最大ステップ checkpoint を
 自動選択します（`find_latest_checkpoint` の `(run_ts, steps)` 降順）。
@@ -103,7 +114,7 @@ checkpoint を用意してから live_server を起動してください。
 .venv\Scripts\python.exe -m block_stacker.serving.live_server `
     --model output/training/fresh/sac_20260713-140000_498000_steps.zip `
     --snapshot-dir output/training `
-    --n-envs 2
+    --n-envs 1 --sync-every 50
 ```
 
 ### 2 回目以降（スナップショット引き継ぎ）
@@ -116,7 +127,7 @@ checkpoint を用意してから live_server を起動してください。
 ```powershell
 # 毎日同じコマンドで OK（スナップショットを自動引き継ぎ）
 .venv\Scripts\python.exe -m block_stacker.serving.live_server `
-    --snapshot-dir output/training --n-envs 2
+    --snapshot-dir output/training --n-envs 1 --sync-every 50
 ```
 
 ---
@@ -129,24 +140,26 @@ checkpoint を用意してから live_server を起動してください。
 そのインスタンス上でバックグラウンド学習も行うため、**追加インスタンスコストはほぼゼロ**。
 唯一のコストは「CPU 使用率上昇による Spot 強制中断リスクの増加」です。
 
-### インスタンス別推奨 n_envs
+### インスタンス別の n_envs（コンセプト：ゆっくり育てる）
 
-| インスタンス | vCPU | 推奨 `--n-envs` | 推定スループット | 根拠 |
-|---|---|---|---|---|
-| t4g.small (配信 EC2) | 2 | 0 | — | 配信専用。serving で CPU 飽和 |
-| c6i.xlarge (デモ EC2) | 4 | **2** | ~300–600 steps/sec | serving 2 vCPU + training 2 vCPU |
-| c6a.xlarge | 4 | **2** | ~400–700 steps/sec | AMD は vCPU 当たり学習効率がやや高い |
-| c6a.2xlarge | 8 | **4–6** | ~800–1400 steps/sec | serving 2 vCPU + training 4–6 vCPU |
+**このサービスは学習スループットを最大化しない。** `n_envs` は既定 **1**（`configs/training.yaml`、
+`gradient_steps` も 1 と揃える）。したがってインスタンス選定は「学習を速くする」ためではなく、
+**表示の 240Hz 物理に専有コアを与えて配信を滑らかに保つ**ため。3 段階の選定根拠は
+[`block_stacker_design.md`](block_stacker_design.md) §8.3.1。
 
-> **t4g.small** は WebSocket 配信 + PyBullet 240Hz だけで CPU を使い切るため
-> `--n-envs 0`（配信専用）が必須です。
+| デモ instance | 物理コア / RAM | 推奨 `--n-envs` | 表示の滑らかさ |
+|---|---|---|---|
+| t4g.small（配信専用 EC2） | — | **0** | 配信のみ。学習は載せない |
+| 最低 c6a.xlarge | 2 / 8GB | **0〜1** | 学習を載せると重い物理時にフレーム落ち。滑らかさ優先なら 0 |
+| **推奨 c6a.2xlarge** | 4 / 16GB | **1** | 表示に1コア専有＋学習で余裕。◎ |
+| 最高 m7a.2xlarge | 4 / 32GB | **1** | 単一コア clock 最高で最も滑らか。◎ |
 
-### 学習スループット vs 専用学習の比較
+> `--n-envs 0` は「配信のみ・学習なし」。最低構成で表示品質を最優先するときや、
+> 学習を別の learner インスタンスに寄せるとき（元の3層設計）に使う。
+> `--n-envs` は **スナップショットを作った時の n_envs と一致必須**（既定 1 なら 1）。
 
-| 運用形態 | インスタンス | n_envs | 推定 steps/8h | コスト/8h (Spot) |
-|---|---|---|---|---|
-| ライブ学習 (c6i.xlarge, n_envs=2) | $0.17/hr | 2 | ~0.9M–2M steps | 配信コストに込み |
-| 専用学習 (c6a.4xlarge) | $0.27/hr | 8 | ~58M steps | +$2.16 |
+> **なぜ n_envs を上げないのか**: 並列を増やせば速く賢くなるが、それはコンセプト（不器用さを
+> 残してゆっくり成長を眺める）に反する。速く仕上げたいプリセットは別途 `training.train` で作る。
 
 専用学習は 1 ケタ以上高効率ですが、live_server 上での継続学習は「配信しながらじわじわ賢くなる」
 演出に特化した用途であり、純粋な学習効率よりも **長期連続稼働でのゆっくりした成長** を目的としています。
@@ -167,10 +180,14 @@ asyncio スレッド:
   ai_driver_task predict()  ← SAC policy.forward  軽量 (<0.1 vCPU)
   WebSocket broadcast       ← asyncio I/O         <0.1 vCPU
 
-live-train スレッド (n_envs=2):
-  SubprocVecEnv × 2         ← 各 env が独立 PyBullet プロセス  ~1 vCPU × 2
-  SAC gradient updates      ← train_freq=1, gradient_steps=8   ~0.5 vCPU
+live-train スレッド (n_envs=1):
+  VecEnv × 1                ← 独立 PyBullet で1 env  ~1 vCPU
+  SAC gradient updates      ← train_freq=1, gradient_steps=1   ~0.3 vCPU
 ```
+
+> つまり融合構成の実働は「表示 ~1 vCPU ＋ 学習 ~1.3 vCPU」。物理2コア（c6a.xlarge）では
+> 両者が同じ物理コアを奪い合い、重い物理時に表示がカクつく。表示に1コア専有させるには
+> 物理4コア（c6a.2xlarge 以上）が要る（§8.3.1）。
 
 ---
 

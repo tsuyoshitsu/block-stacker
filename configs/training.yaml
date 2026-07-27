@@ -25,8 +25,12 @@ curriculum:
   # 注: 目標高さは各ステージ固定値ではなく「在庫 × graduation.ratio」で動的に決まる
   #     （inventory_full_stack_height × ratio）。なので stage に target_height は持たない。
   # steps: そのステージを走らせる env ステップ数（固定予算）。卒業判定は廃止したので、
-  #   ここに書いた分だけ必ず走って次のステージへ進む。合計 = 250,000（既定 Stage 1-4 は 180,000）。
+  #   ここに書いた分だけ必ず走って次のステージへ進む。合計 = 235,000（既定 Stage 1-4 は 165,000）。
   #   CLI で上書き可: `--stage-steps 50000`（一括）/ `--stage-steps 60000,35000,...`（個別）。
+  #
+  # ★ Stage 3 の steps=10,000 は「プリセット生成（Stage3 のみ）の標準ステップ数」を兼ねる。
+  #   運用ではプリセット = `--start-stage 3 --target-stage 3`（＝10,000）が本線。
+  #   全 5 ステージを本気で回すとき Stage 3 が短すぎるなら --stage-steps で上書きすること。
   #
   # 総量の根拠（実測ベース。所要時間に直結するので勝手に増やさないこと）:
   #   - このマシンの実測スループットは約 2 steps/秒（time/fps 中央値 2.0）。
@@ -66,9 +70,10 @@ curriculum:
       stable_duration: 2.0
       h_high: 0.25
       h_low: 0.08
-      # 初めての非等方形状だが、実測では予算内で success_rate 0.43 に到達した
-      # （2026-07-20 の 1/10 スケール run）。余裕があるので削り、Stage 4 に回す。
-      steps: 25000
+      # プリセット生成（Stage3 のみ）の標準ステップ数を兼ねる。10,000 は「不器用→習得」の
+      # 壁（実測 step 12k〜15k）の手前で止める値＝わざと積めない子供を残す（CLAUDE.md 参照）。
+      # 注: 全カリキュラム run ではこの値だと習得前に Stage 4 へ進むため短い。要 --stage-steps 上書き。
+      steps: 10000
     - id: 4
       name: "Stage 4: 三角柱を追加（cube + cuboid + triangular_prism）"
       shapes_allowed: [cube, cuboid, triangular_prism]

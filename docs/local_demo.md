@@ -10,8 +10,8 @@
 ```
 ┌──────────────────────────────────────────────────────────┐
 │ 1. 学習を回す                                            │
-│    python -m block_stacker.training.train --n-envs 4                 │
-│    → output/training/fresh/ にモデルが 1 本できる            │
+│    python -m block_stacker.training.train --start-stage 3 --target-stage 3 │
+│    → output/training/fresh/ にプリセットが 1 本できる        │
 └──────────────────────────────────────────────────────────┘
                             │
                             ▼
@@ -71,40 +71,43 @@
 |---|---|---|---|
 | 1 | cube 8個 | **60,000** | ゼロから基礎を獲得する最大の山。**以降の全ステージがこの方策を継承する** |
 | 2 | cube 15個 | 35,000 | 同じ cube のまま個数と目標高さが増えるだけ。転移が最も効く |
-| 3 | +cuboid | 25,000 | 実測で予算内に success_rate 0.43 到達。余裕があるので Stage 4 へ回した |
+| 3 | +cuboid | **10,000** | **プリセット生成の標準値を兼ねる**（壁の手前で止める）。全 run では短すぎるので上書き前提 |
 | 4 | +三角柱 | **60,000** | **斜面**。実測で 0.43 → 0.00 に退行し、回復途中で予算切れになった |
 | 5 | +円柱 | **70,000** | **曲面**（転がる）。既存方策が通用しない新規スキル |
-| | **合計** | **250,000** | 既定範囲（Stage 1-4）は **180,000** |
+| | **合計** | **235,000** | 既定範囲（Stage 1-4）は **165,000** |
 
 重いのは Stage 1（ゼロから）と Stage 4・5（斜面・曲面という**質的に新しい難しさ**）です。
 難易度は形状が支配的で、目標高さの大小では測れません（Stage 3→4 は目標が 0.408m→0.420m と
-ほぼ同じなのに success_rate が 0.43→0.00 に落ちた）。
+ほぼ同じなのに success_rate が 0.43→0.00 に落ちた）。**Stage 3 が極端に小さい**のは、この値が
+プリセット生成（Stage 3 のみ）の標準ステップ数を兼ねており、わざと習得の壁の手前で止めているため。
+全 5 ステージを本気で回すときは `--stage-steps` で Stage 3 を増やすこと。
 
-> **総量の根拠**: このマシンの実測スループットは**約 2 steps/秒**（`time/fps` 中央値 2.0）。
-> 既定範囲の 180,000 steps で**約 25 時間**、全 5 ステージの 250,000 steps で**約 35 時間**。
-> 学習シグナル自体は 1〜2 万ステップで現れる。増やす場合は所要時間が比例して伸びる点に注意。
+> **総量の根拠**: n_envs=1 の実測スループットは**約 2.5 steps/秒**（`gradient_steps=1` で学習側が軽い）。
+> 既定範囲の 165,000 steps で**約 18 時間**、全 5 ステージの 235,000 steps で**約 26 時間**。
+> 学習シグナル自体は 1〜2 万ステップで現れる。
+
+> **n_envs は既定 1**（`configs/training.yaml`）。コンセプト（ゆっくり育てる）に加え、
+> **live_server はこの n_envs と一致必須**なので、既定のまま（フラグ省略）が扱いやすい。
 
 ```powershell
-# ---- プリセット生成（既定: Stage 1→4 を各予算どおり走る）----
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4
+# ---- ライブ配信用プリセットの標準レシピ（Stage 3 のみ・10,000 steps＝Stage3 の既定）----
+#   わざと「不器用→習得」の壁の手前で止め、ライブで不出来さを残す（詳細は CLAUDE.md）
+.venv\Scripts\python.exe -m block_stacker.training.train --start-stage 3 --target-stage 3
+
+# ---- 全ステージを既定予算で走る（Stage 1→4）----
+.venv\Scripts\python.exe -m block_stacker.training.train
 
 # Stage 5（全形状、円柱含む）まで走らせる
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --target-stage 5
+.venv\Scripts\python.exe -m block_stacker.training.train --target-stage 5
 
 # 全ステージを一括で同じステップ数にする（一括指定）
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --stage-steps 100000
+.venv\Scripts\python.exe -m block_stacker.training.train --stage-steps 100000
 
 # ステージごとに個別指定（実行するステージ数と要素数を合わせる。ここでは Stage 1-4 の4要素）
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --stage-steps 50000,30000,35000,40000
-
-# まず Stage 1→2 だけ試す
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --target-stage 2
-
-# 単一ステージだけ素早く確認したいとき（Stage 1 のみ）
-.venv\Scripts\python.exe -m block_stacker.training.train --no-curriculum --n-envs 4 --stage-steps 20000
+.venv\Scripts\python.exe -m block_stacker.training.train --stage-steps 50000,30000,35000,40000
 
 # 動作確認だけ（数秒で終わる超短縮版）
-.venv\Scripts\python.exe -m block_stacker.training.train --no-curriculum --n-envs 2 --stage-steps 500
+.venv\Scripts\python.exe -m block_stacker.training.train --no-curriculum --stage-steps 500
 ```
 
 > `--stage-steps` はカンマ区切りの要素数が**実行するステージ数と一致しないとエラー**になる
@@ -192,34 +195,56 @@ tools\demo_checkpoints.ps1
 
 **学習の進行をクライアントで見たい場合はこちら。**`live_server` は配信と学習を 1 プロセスに
 融合したモードで、WebSocket で配信しながらバックグラウンドで SAC を回し続ける。
+プリセット（`fresh/` のモデル）を作ってから起動する。
 
 ```powershell
 .venv\Scripts\python.exe -m block_stacker.serving.live_server `
     --snapshot-dir output/training `
-    --n-envs 6 `
+    --n-envs 1 `
+    --sync-every 50 `
     --host 127.0.0.1 `
     --duration 0
+```
+
+> **推奨実行値は `--n-envs 1 --sync-every 50`**（コード既定は 4 / 500 なので必ず明示）。
+> `--sync-every` は学習成果を表示へ反映する間隔で、500 だと粗い。
+
+起動が成功すると、ログに次の 3 行が出る（この順で出れば正常）：
+
+```
+serve_model loaded: n_params=856178
+WebSocket server listening on ws://127.0.0.1:8765   ← 配信が待受開始
+[train] starting SAC.learn() background              ← バックグラウンド学習が稼働
 ```
 
 - `--snapshot-dir` を指定するだけで**スナップショット（NN 重み＋長期記憶）を自動で引き継ぐ**
   （`--resume` フラグは不要。無視させたい初回のみ `--no-resume`）
 - `--duration 0` で無制限。既定は 28800 秒（8 時間）で自動終了する
-- Godot の接続先は `ai_server` と同じ `ws://127.0.0.1:8765`
+- Godot の接続先は `ai_server` と同じ `ws://127.0.0.1:8765`。Step 2 でクライアントを
+  開いていれば 2 秒以内に自動接続する
+
+> ⚠️ **`--n-envs` はスナップショットを作った時の n_envs と一致させること。**
+> バックグラウンド学習は `set_env()` でモデルに env を差し替えるが、SAC は
+> モデルの n_envs と env 数が一致しないと `AssertionError` で**学習スレッドだけ落ちる**
+> （配信は生きたまま、賢くならなくなる）。`configs/training.yaml` の `sac.n_envs`（既定 **1**）で
+> 学習したプリセットなら `--n-envs 1`。分からなければ `[train] background training thread crashed`
+> がログに出ていないか確認する。`--n-envs 0` なら学習なし・配信のみ（この制約は無関係）。
 
 `training.train` との違い：
 
 | | `training.train` | `live_server` |
 |---|---|---|
 | クライアント接続 | **不可**（WebSocket なし） | 可 |
-| カリキュラム | `stages[].steps` に従って Stage を進行 | **常に最終ステージのみ**（Stage 進行なし） |
+| カリキュラム | `stages[].steps` に従って Stage を進行 | **常に最終ステージ（Stage 5）のみ**（Stage 進行なし） |
 | 終了条件 | ステージ予算を使い切ったら | `--duration` |
+| n_envs | 自由（新規 run） | **スナップショットと一致必須** |
 
 **`live_server` はカリキュラムを進行しない**ので、段階的に学習させたいときは `training.train`、
-できあがったモデルを配信しつつじわじわ伸ばしたいときは `live_server`、と使い分ける。
+できあがったプリセットを配信しつつじわじわ伸ばしたいときは `live_server`、と使い分ける。
 詳細は [`docs/live_mode.md`](live_mode.md)。
 
-> `--n-envs` は 240Hz の物理ループと CPU を取り合う。配信がカクつく場合は下げる
-> （12 論理コアなら 4〜6、配信の滑らかさ優先なら 2〜4）。`--n-envs 0` で配信のみ。
+**止め方**: フォアグラウンド実行なら `Ctrl-C`（`finally` でスナップショットを保存して正常終了）。
+バックグラウンド実行なら該当 python プロセスを停止する。
 
 ### Step 4: 観察する
 
@@ -309,16 +334,16 @@ Stage 1 しか学習していないモデルを最終ステージの世界（円
 
 ## 学習時間の見積もり
 
-i7-10750H (6 物理コア, n_envs=4) 想定。**`total_timesteps` は安全上限（タイムアウト）で、
-既定では Stage 1→4 をステージ予算どおり走り切って終了する**。
+**既定 n_envs=1** 想定。ローカルは PyBullet の `settle_duration=2s` が律速だが、
+`gradient_steps=1` で学習側が軽いため **実測 約 2.5 steps/秒**。
 
-| 用途 | 推奨コマンド例 | 目安時間 | 出力モデル数 |
+| 用途 | コマンド例 | 目安時間 | 出力モデル数 |
 |---|---|---|---|
 | 煙テスト（動作確認のみ） | `--no-curriculum --stage-steps 500` | 数秒 | プリセット 1 本 |
-| **プリセット生成（既定 Stage 1→4）** | `--n-envs 4` | **約 25 時間**（実測 2 steps/秒） | プリセット 1 本 |
-| Stage 5 完走（全形状） | `--n-envs 4 --target-stage 5` | 約 35 時間 | プリセット 1 本 |
+| **ライブ用プリセット（標準・Stage 3 のみ 10k）** | `--start-stage 3 --target-stage 3` | **約 1.1 時間** | プリセット 1 本 |
+| 全ステージ既定（Stage 1→4, 計16.5万） | （フラグなし） | 約 18 時間 | プリセット 1 本 |
+| Stage 5 完走（全形状, 計23.5万） | `--target-stage 5` | 約 26 時間 | プリセット 1 本 |
 
-ローカルは PyBullet の `settle_duration=2s` が律速で、**実測 約 2 steps/秒**（`time/fps` 中央値 2.0）。
 **どの用途でも 1 回の学習で出るモデルは 1 本**（全ステージ走破後のプリセット）。
 途中経過が欲しい場合は `--stage-steps` を刻んで複数回に分けて走らせる。
 
@@ -371,7 +396,7 @@ fresh/ が空になったら → played/ の最大ステップモデルを繰り
 
 ```powershell
 # 1. 学習を実行（Stage 1→4 をステージ予算どおり走り、fresh/ にモデルが 1 本できる）
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4
+.venv\Scripts\python.exe -m block_stacker.training.train
 
 # 2. day 1 から配信開始（fresh/ の最古モデルで起動）
 tools\advance_day.ps1
