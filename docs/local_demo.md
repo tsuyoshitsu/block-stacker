@@ -363,7 +363,7 @@ Stage 3 以上の範囲で学習したモデルで確認すること。
 $ACCOUNT = aws sts get-caller-identity --query Account --output text
 # fresh/ の最大ステップのモデルを最新モデルとして S3 にアップ
 $model = & .venv\Scripts\python.exe -c "from block_stacker.training.checkpoint import find_latest_checkpoint; from pathlib import Path; p = find_latest_checkpoint(Path('output/training')); print(p)"
-aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
+aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意）
 ```
 
 → 次のクラウドデモ起動時にこのモデルが自動的に読み込まれる。

@@ -1,6 +1,7 @@
 #!/bin/bash
-# デモ EC2 (c6i.xlarge Spot) ブート時スクリプト。
-# ai_server を Docker で起動し、private IP を SSM に登録（配信側が discover する）。
+# デモ EC2 (c6a.2xlarge Spot) ブート時スクリプト。
+# live_server を Docker で起動し、private IP を SSM に登録（配信側が discover する）。
+# live_server = 1x速の配信 + バックグラウンド学習の融合（docs/live_mode.md）。
 
 set -euo pipefail
 exec > >(tee -a /var/log/userdata.log) 2>&1
@@ -29,7 +30,11 @@ aws s3 sync s3://"$APP_BUCKET"/world_state/ /opt/bs/state/   || true
 aws s3 sync s3://"$APP_BUCKET"/models/      /opt/bs/models/  || true
 aws s3 sync s3://"$APP_BUCKET"/configs/     /opt/bs/configs/
 
-# ai_server を起動 (port 8765 を公開)
+# live_server を起動 (port 8765 を公開)。配信しながらバックグラウンドで学習を継続する。
+#   --snapshot-dir: モデル + replay_buffer.pkl + resume_state.json の読み書き先。
+#     前営業日のスナップショットをここから自動で引き継ぐ（--no-resume は初回のみ）。
+#   --n-envs / --sync-every は既定（1 / 50）が運用値なので指定しない。
+#     n_envs はスナップショット作成時と一致必須（不一致だと学習スレッドだけ落ちる）。
 docker run -d --name demo --restart unless-stopped \
     -p 8765:8765 \
     -v /opt/bs/state:/app/state \
@@ -37,8 +42,8 @@ docker run -d --name demo --restart unless-stopped \
     -v /opt/bs/configs:/app/configs \
     -e APP_BUCKET="$APP_BUCKET" \
     "$ECR_REGISTRY/block-stacker/demo:latest" \
-    block_stacker.serving.ai_server \
-        --model /app/models/latest.pt \
+    block_stacker.serving.live_server \
+        --snapshot-dir /app/models \
         --port 8765 \
         --configs-dir /app/configs
 

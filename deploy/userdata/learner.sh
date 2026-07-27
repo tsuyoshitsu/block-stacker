@@ -22,10 +22,12 @@ aws s3 sync s3://"$APP_BUCKET"/state/    /opt/bs/state/         || true
 aws s3 sync s3://"$APP_BUCKET"/models/   /opt/bs/checkpoints/
 aws s3 sync s3://"$APP_BUCKET"/configs/  /opt/bs/configs/
 
-# SAC 訓練を Docker で起動（CPU-only）。
-# n_envs=8 は c6a.4xlarge の物理コア (8 core, HT 込み 16 vCPU) を飽和する設定。
-# SAC は sample-efficient なので 1M timesteps でも十分進む。重みつき記憶バッファ +
-# 短期記憶も含む完全構成（configs/training.yaml の memory_system / short_term_memory 参照）。
+# プリセット生成を Docker で起動（CPU-only）。
+# train の既定がそのままプリセット生成（Stage 3 のみ・5,000 steps、n_envs=1）なので
+# ステップ数・並列数は指定しない（configs/training.yaml が唯一の出所）。
+#   n_envs は gradient_steps と揃える必要があるため CLI で上書きしないこと。
+#   フルカリキュラムを回したい場合のみ --start-stage 1 --target-stage 4 を足す。
+# 実測 約2.5 steps/秒 → 5,000 steps ≈ 35 分で終了する。
 docker run -d --name learner --restart unless-stopped \
     -v /opt/bs/state:/app/state \
     -v /opt/bs/checkpoints:/app/checkpoints \
@@ -33,13 +35,12 @@ docker run -d --name learner --restart unless-stopped \
     -e APP_BUCKET="$APP_BUCKET" \
     "$ECR_REGISTRY/block-stacker/learner:latest" \
     block_stacker.training.train \
-        --total-timesteps 1000000 \
-        --n-envs 8 \
-        --use-subproc \
         --configs-dir /app/configs \
         --output-dir /app/checkpoints
 
-# checkpoint を 5 分毎に S3 へ
+# 生成物を S3 へ同期する。定期 checkpoint は撤去済みで、走破後にプリセット 1 本
+# （+ replay_buffer.pkl / resume_state.json）が出るだけなので、下のタイマーは
+# 「完了を取りこぼさないためのポーリング」であって細かい途中経過の収集ではない。
 cat > /usr/local/bin/upload_checkpoint.sh <<EOF
 #!/bin/bash
 aws s3 sync /opt/bs/checkpoints/ s3://${APP_BUCKET}/models/ --exclude '.*'

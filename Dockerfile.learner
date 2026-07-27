@@ -54,16 +54,13 @@ ENV CONFIGS_DIR=/app/configs
 # ENV BS_GRADUATION_WINDOW=30
 
 ENTRYPOINT ["python", "-m"]
-# 既定は SAC 訓練 + オートカリキュラム（Stage 1→4 を自動進行、--target-stage 4 既定）。
-#   カリキュラムは training.train の既定 ON（下の --curriculum は明示のため）。
-#   各ステージで「散布0で即卒業」または「目標高さ到達の success_rate>=0.6（直近30）」で卒業。
-#   --total-timesteps は「全ステージ合計の上限（グローバル予算）」。総手数は必ずこの値以下。
-#   早く卒業した分の残りが次ステージに回る。使い切ったら中断。SubprocVecEnv 8 並列。
-#   単一 Stage 1 に戻すなら --no-curriculum を渡す。Stage 5 まで進む場合は --target-stage 5 を追加。
-# 保存: fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip を checkpoint_every（既定 50000 steps）間隔で保存。
-#   --target-stage 卒業時に追加で明示的 checkpoint を保存（最終モデル相当）。sac_final.zip は廃止。
-CMD ["block_stacker.training.train", \
-     "--curriculum", \
-     "--total-timesteps", "1000000", \
-     "--n-envs", "8", \
-     "--use-subproc"]
+# 既定は**プリセット生成**（train の既定がそのまま Stage 3 のみ・5,000 steps）。
+#   月初に 1 回走らせてその月のシードモデルを作る用途（docs/aws_deployment.md §5.3）。
+#   **卒業判定は廃止済み**。各ステージは configs/training.yaml の stages[].steps 分だけ走り、
+#   成績によらず次へ進む（既定は Stage 3 のみなので進行自体が起きない）。
+#   n_envs は configs の sac.n_envs（既定 1）を使う。gradient_steps と揃える必要があるため
+#   ここでは上書きしない。
+#   フルカリキュラムを回すなら CMD を上書き: --start-stage 1 --target-stage 4
+# 保存: 走破後に fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip を **1 本だけ**保存する
+#   （定期 checkpoint は撤去済み。sac_final.zip も廃止）。
+CMD ["block_stacker.training.train"]

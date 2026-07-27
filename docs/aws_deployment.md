@@ -196,8 +196,12 @@ docker push "$REGISTRY/block-stacker/learner:latest"
 ```powershell
 # find_latest_checkpoint で最新 run の最大ステップ checkpoint を取得（ソートキー: (run_ts, steps) 降順）
 $model = & .venv\Scripts\python.exe -c "from block_stacker.training.checkpoint import find_latest_checkpoint; from pathlib import Path; p = find_latest_checkpoint(Path('output/training')); print(p)"
-aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
+aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意）
 ```
+
+> ⚠️ **モデルのファイル名は変えないこと**。live_server / ai_server は `--snapshot-dir`
+> 配下の `sac_<run_ts>_<steps>_steps.zip` を `(run_ts, steps)` 順で自動選択する
+> （`find_latest_checkpoint`）。`latest.pt` のような別名にリネームすると**拾えなくなる**。
 
 未アップロードの場合、デモ EC2 起動時にモデルが無いのでエラーログが出ます。
 初回は「インフラを立ち上げ、後でモデルを upload」で OK。
@@ -404,7 +408,7 @@ aws s3 cp configs/training.yaml s3://bs-app-$ACCOUNT/configs/training.yaml
 
 # S3 にアップロード（fresh/ の最大ステップ checkpoint を最新モデルとして）
 $model = (Get-ChildItem "output\training\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
-aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
+aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意）
 # デモ EC2 は次回 collapse 時 (or 再起動時) に S3 からモデル再ロード
 ```
 
@@ -1084,7 +1088,7 @@ tools\demo_checkpoints.ps1 -Mode auto -Seconds 30 -LaunchGodot
 ```powershell
 $ACCOUNT = aws sts get-caller-identity --query Account --output text
 $model = (Get-ChildItem "output\training\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
-aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
+aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意）
 ```
 
 → 次回クラウドデモ起動時に S3 から自動取得して使用される。
@@ -1152,7 +1156,7 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/latest.pt
 ### モデルの準備
 
 - [ ] ローカルで `training.train` を回して `output/training/fresh/` に checkpoint 生成
-- [ ] `aws s3 cp` で S3 にアップロード (`s3://bs-app-<ACCOUNT>/models/latest.pt`)
+- [ ] `aws s3 cp` で S3 にアップロード (`s3://bs-app-<ACCOUNT>/models/`、**ファイル名は維持**)
 - [ ] クラウドデモ起動時に S3 から取り込まれることを確認
 
 ### ローカルクライアント
