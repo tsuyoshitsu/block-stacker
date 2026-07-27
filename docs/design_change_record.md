@@ -562,6 +562,31 @@ ECR に push する案（3 リポジトリ化）も考えたが、ビルド順�
 実際、卒業誤検出を調査した時点の run には報酬系のタグが1つも無く、
 スカラーは 10 種（`curriculum/*`, `rollout/success_rate`, `time/fps`, `train/*`）のみだった。
 
+### 5.8 検討したが不採用: Docker 実行基盤を Fargate へ
+
+コンテナ化が済んだ時点で「EC2 を管理せず ECS Fargate で回せないか」を検討したが、**live は EC2 のまま**とした。
+
+**不採用の理由**
+
+1. **物理コアを専有できない**。[§8.3.1](block_stacker_design.md) のインスタンス選定は
+   「表示の 240Hz `world.step()` に物理コアを 1 つ専有させる」が第一の軸で、c6a.2xlarge を選んだ根拠そのもの。
+   Fargate は vCPU 割当量しか保証せず core pinning ができないため、1 歩 4.17ms のバジェットに対する
+   ジッタが読めない。**選定根拠が成立しない**のが決定的だった。
+2. **永続ディスクが無い**。現行は EBS が stop/start をまたいで 1.6GB の `replay_buffer.pkl` を保持する
+   前提（§5.5）。Fargate は毎起動 S3/EFS から引いて停止時に書き戻す実装が要る。EFS を足すと
+   NFS 越しの 1.6GB pickle I/O になり、遅い上に書込課金が乗る。
+3. **安定した private IP が無い**。streamer の Caddy は SSM の `/bs/live/private_ip` を読んで
+   reverse_proxy する。Fargate のタスク IP は起動ごとに変わるので Cloud Map か NLB が必要
+   （NLB は +$16〜/月で、Interface Endpoint に次ぐ固定費になる）。
+4. **コストがほぼ同額**。Fargate Spot 8vCPU/16GB ≈ $26/月 に対し EC2 c6a.2xlarge Spot は $22.9/月。
+   月額 $59 の最大項目は Interface Endpoint の $22（43%）で、これは Fargate でも同じく必要。
+   **コスト目的の移行としては筋が悪い**。
+
+**learner は将来 live とセットで再検討**。月 35 分のバッチなので秒課金・停止中の EBS 課金ゼロ・
+ホスト管理不要が効き、16 vCPU は Fargate 上限にちょうど収まる。ただし差額は月 ¥30 → ¥90 程度で、
+ECS クラスタ + タスク定義 + RunTask という**第二のデプロイ経路**を抱える対価には見合わない
+（ASG を撤去して EC2 start/stop に一本化した直後でもある）。live 側に ECS 化の動機が出たら同時に見直す。
+
 ---
 
 ## 7. 開発環境
