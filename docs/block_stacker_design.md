@@ -28,7 +28,7 @@
 ┌─────────────────────────────────────┐
 │ 学習 EC2 (c6a.4xlarge, AMD CPU)      │
 │ - SAC + 重みつきリプレイバッファ      │
-│ - 月初 Stage3 のみ 10k steps          │
+│ - 月初 Stage3 のみ 5k steps           │
 │ - 完成後プリセットを S3 へ保存        │
 └──────────────┬──────────────────────┘
                │ PUT
@@ -64,7 +64,7 @@
 
 | コンポーネント | 役割 |
 |---|---|
-| 学習 EC2 (c6a.4xlarge Spot) | 月初にプリセット生成（Stage3 のみ 10k, n_envs=1）→ S3。※10k/n_envs=1 には過剰、§8.2 参照 |
+| 学習 EC2 (c6a.4xlarge Spot) | 月初にプリセット生成（Stage3 のみ 5k, n_envs=1）→ S3。※5k/n_envs=1 には過剰、§8.2 参照 |
 | デモ EC2 (c6a.2xlarge Spot) | 1x速で物理シム実行＋バックグラウンド学習、WebSocket 配信。選定は §8.3.1 |
 | 配信 EC2 (t4g.small Spot, ARM) | Caddy 自動 TLS + リバプロでクライアントへブロードキャスト |
 | S3 | モデル重み + 持続ワールド状態 + configs |
@@ -72,7 +72,7 @@
 
 ### モデル共有フロー
 
-1. 学習側（月初）: Stage3 のみ 10k steps のプリセット 1 本を `s3://bucket/models/` へ sync
+1. 学習側（月初）: Stage3 のみ 5k steps のプリセット 1 本を `s3://bucket/models/` へ sync
 2. デモ側: 起動時に S3 から最新モデルを取り込み、live_server で配信（バックグラウンド学習込み）
 
 > **設計変更履歴**:
@@ -408,10 +408,10 @@ all_placed = 全ブロックが1つの連結成分        # 高さ非依存 → 
 - **既定で** Stage 1→N を自動進行（`--no-curriculum` で Stage 1 のみに切替）。
 - **進行は固定ステップ制**。各ステージは `stages[].steps`（CLI `--stage-steps` で上書き可）だけ走り、
   成績によらず次へ進む。`StageMonitorCallback` は指標を記録するだけで `learn()` を止めない。
-  既定配分は 60k / 35k / 10k / 60k / 70k（Stage 1〜5、合計 23.5万。既定範囲 Stage 1-4 は 16.5万）。
-  Stage 1（ゼロから）と Stage 4/5（斜面・曲面）が重い。**Stage 3=10k はプリセット生成の標準値**を
+  既定配分は 60k / 35k / 5k / 60k / 70k（Stage 1〜5、合計 23万。Stage 1-4 は 16万）。
+  Stage 1（ゼロから）と Stage 4/5（斜面・曲面）が重い。**Stage 3=5k はプリセット生成の標準値**を
   兼ねる（壁の手前で止める。全 run で回すなら Stage 3 が短すぎるので --stage-steps 上書き前提）。
-  総量は n_envs=1 実測 約2.5 steps/秒（16.5万 ≈ 18時間）を踏まえた値。
+  総量は n_envs=1 実測 約2.5 steps/秒（16万 ≈ 18時間）を踏まえた値。
 - 観測空間は全ステージ共通（`max_blocks=8` 等で固定）なので、**同じ NN・記憶バッファを
   `model.set_env()` で引き継いだまま** env だけ差し替える。タイムステップ計数・TensorBoard も連続。
   SB3 は `reset_num_timesteps=False` のとき `total_timesteps` に `num_timesteps` を足すため、
@@ -421,7 +421,9 @@ all_placed = 全ブロックが1つの連結成分        # 高さ非依存 → 
   定期 checkpoint は撤去した（`sac_final.zip` も廃止）。
 - `--total-timesteps` は**全体の安全上限**。無指定なら `sac.total_timesteps`（既定 null）→
   ステージ予算の合計をそのまま使う。上限を超える分は後半ステージが切り詰められる。
-- `--target-stage`（既定 4）/ `--max-stage` は**最後に走るステージの上限**（厳しい方を採用）。
+- `--start-stage`（既定 **3**）/ `--target-stage`（既定 **3**）/ `--max-stage` で走る範囲を決める。
+  **既定は「Stage 3 のみ」＝引数なし実行がそのままプリセット生成**になる。
+  フルカリキュラムは `--start-stage 1 --target-stage 4` を明示（既定では走らない）。
   卒業判定の撤去に伴い「到達したら終了」ではなく単なる範囲指定。
 - **本番配信（[`serving/live_server.py`](src/block_stacker/serving/live_server.py)）**:
   学習（train_model）と配信（serve_model）を 1 プロセスに融合した形式。常に最終ステージ（Stage 5）で配信。
@@ -842,9 +844,9 @@ ap-northeast-1 (Tokyo)
 
 **運用モデル（暫定）**: 学習は「月初のシード生成」＋「平日の連続学習」の2段構え。
 
-- **① プリセット生成（月初・月1回）**: 月の初日に **Stage 3 のみ・10,000 steps** の短時間学習で
+- **① プリセット生成（月初・月1回）**: 月の初日に **Stage 3 のみ・5,000 steps** の短時間学習で
   その月のシードモデルを作る（n_envs=1、実測 約2.5 steps/秒 → **約1時間**）。
-  レシピは `--start-stage 3 --target-stage 3 --stage-steps 10000`。
+  レシピは**引数なし実行**（既定が start=target=3 / Stage3 steps=5,000）。
 - **② 学習配信（平日・日中8時間）**: デモ EC2 で `live_server` を回し、**配信しながら
   バックグラウンドで継続学習**する。前営業日のスナップショットを引き継ぐので、月を通して
   シードから少しずつ賢くなる。
@@ -857,9 +859,9 @@ ap-northeast-1 (Tokyo)
 | **bs-demo-stop** | `cron(0 9 ? * MON-FRI *)` | 月-金 18:00 | 同上 | 同上 |
 
 > **スケジュール（暫定）**: 上記の稼働時間帯・学習頻度・ステップ数はいずれも**暫定値**で確定していない。
-> 特に「月初・10,000 steps」「平日 10-18 の 8h」は運用しながら調整する前提。
+> 特に「月初・5,000 steps」「平日 10-18 の 8h」は運用しながら調整する前提。
 >
-> **プリセット生成インスタンスは過剰の可能性**: 10,000 steps を n_envs=1 で回すのは 1 コア×約1時間で、
+> **プリセット生成インスタンスは過剰の可能性**: 5,000 steps を n_envs=1 で回すのは 1 コア×約35分で、
 > 学習 EC2 の c6a.4xlarge（16 vCPU）は明らかにオーバースペック。将来は小型インスタンスへ寄せるか、
 > デモ EC2 の月初プリステップとして畳み込む案がある（未決）。
 >
@@ -1023,7 +1025,7 @@ ASG + Mixed Instances Policy + capacity-optimized で自動再起動。
 | **合計** | | **約 ¥8,900/月 (年 ¥107,000)** |
 
 > デモは**推奨 c6a.2xlarge**前提（§8.3.1。最低 c6a.xlarge なら約 ¥7,600、最高 m7a.2xlarge なら約 ¥9,900）。
-> プリセット生成を月初 10k steps（~1h）に縮小したことで学習費は ¥480→¥30 に。
+> プリセット生成を月初 5k steps（~35分）に縮小したことで学習費は ¥480→¥30 に。
 > 稼働時間・頻度・インスタンス段階はいずれも暫定で、確定後に再計算する。
 
 ---
@@ -1057,7 +1059,7 @@ ASG + Mixed Instances Policy + capacity-optimized で自動再起動。
 | AI | 行動空間 | 7 次元連続 |
 | AI | マニピュレーション | 階層化（上位=学習、下位=ソフト追従キャリア） |
 | AI | カリキュラム | 5 Stage、**三角柱 → 円柱の順で投入（円柱が最難）** |
-| AI | ステージ進行 | **固定ステップ制**（卒業判定なし）。既定 60k/35k/10k/60k/70k（Stage3=10k はプリセット標準を兼ねる）、`--stage-steps` で上書き可 |
+| AI | ステージ進行 | **固定ステップ制**（卒業判定なし）。予算 60k/35k/5k/60k/70k。**train 既定は Stage 3 のみ＝プリセット生成**、`--stage-steps` で上書き可 |
 | AI | 降格 | なし |
 | AI | Stage 情報 | クライアント非公開 |
 | AI | 並列環境 | **n_envs=1**（ゆっくり育てるコンセプト。gradient_steps も 1 と揃える） |
@@ -1070,7 +1072,7 @@ ASG + Mixed Instances Policy + capacity-optimized で自動再起動。
 | 物理 | 摩擦 | block-block 0.45 / block-ground 0.5 / block-wall 0.4 |
 | 物理 | キャリア拘束 | point2point、max_force 8N、軌道速度 0.3m/s |
 | AWS | リージョン | ap-northeast-1 (Tokyo) |
-| AWS | 稼働（暫定） | プリセット生成 月初1日 09:00・10k steps (~1h/月) / デモ+学習配信 平日 10-18 (176h/月) |
+| AWS | 稼働（暫定） | プリセット生成 月初1日 09:00・5k steps (~35分/月) / デモ+学習配信 平日 10-18 (176h/月) |
 | AWS | 学習 | **c6a.4xlarge Spot (AMD EPYC, CPU-only)** |
 | AWS | デモ | c6a.2xlarge Spot（推奨。最低 c6a.xlarge / 最高 m7a.2xlarge、§8.3.1）|
 | AWS | 配信 | t4g.small Spot + Caddy（自動 TLS） |

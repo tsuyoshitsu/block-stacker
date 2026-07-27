@@ -36,7 +36,7 @@
 | 項目 | 内容 |
 |---|---|
 | リージョン | ap-northeast-1 (Tokyo) |
-| 稼働日時（**暫定**） | **プリセット生成: 月初1日 09:00 JST・10k steps (~1h)** / **デモ+学習配信: 平日 10-18 JST (月 176h、祝日除く)** |
+| 稼働日時（**暫定**） | **プリセット生成: 月初1日 09:00 JST・5k steps (~35分)** / **デモ+学習配信: 平日 10-18 JST (月 176h、祝日除く)** |
 | 学習 EC2 | `c6a.4xlarge` Spot（AMD EPYC, CPU-only, 8 物理コア） |
 | デモ EC2 | `c6a.2xlarge` Spot（推奨。最低 c6a.xlarge / 最高 m7a.2xlarge、選定根拠は design.md §8.3.1）|
 | 配信 EC2 | `t4g.small` Spot + Caddy（自動 TLS） |
@@ -269,7 +269,8 @@ cd C:\Users\iii03\block-stacker\lambda
 > （`Dockerfile.learner` の `CMD` でも明示）。Stage 1→4 を**固定ステップ制**で進行する
 > （`--target-stage 4` 既定＝走るステージの上限。`--target-stage 5` で Stage 5 まで）。
 > **卒業判定は無い**ので、各ステージは `stages[].steps` の予算どおり走って次へ進む。
-> 総手数はステージ予算の合計で決まる（既定 Stage 1-4 で 165,000）＝起動時間・コストが見積もれる。
+> **train の既定は Stage 3 のみ 5,000 steps（プリセット生成）**。フルカリキュラム
+> （Stage 1-4 = 160,000）を回すなら `--start-stage 1 --target-stage 4` を明示する。
 > 予算は `--stage-steps`（一括 or ステージ別）で上書き可。
 > 成果は全ステージ走破後の `fresh/sac_*_steps.zip` **1 本**を S3 に保存する（`sac_final.zip` は廃止）。
 > Stage 1 のみに戻すなら `CMD` に `--no-curriculum` を渡す（既定 ON なので `--curriculum` を外すだけでは無効化されない）。
@@ -382,7 +383,7 @@ Lambda は 1 ペア（`bs-scale-up` / `bs-scale-down`）を 4 スケジュール
 
 **運用パターン（暫定・調整中）:**
 - 平日 10-18 JST: デモ EC2 が live_server で**配信＋バックグラウンド学習**（融合）。誰でも観られる
-- 月初 1 日 午前: プリセット生成（Stage 3 のみ 10k steps・約1h）でその月のシードを作る
+- 月初 1 日 午前: プリセット生成（Stage 3 のみ 5k steps・約35分。train 既定）でその月のシードを作る
 - 月初のプリセット生成モデルは S3 に保存され、以降デモ EC2 が live_server で日々引き継いで学習する
 - ローカル学習をメインにする場合、`bs-learner-*` の Scheduler を無効化または削除可（学習 EC2 は手動 invoke で気が向いたタイミングだけ起動）
 
@@ -399,7 +400,7 @@ aws s3 cp configs/training.yaml s3://bs-app-$ACCOUNT/configs/training.yaml
 
 ```powershell
 # ローカルで再訓練
-.venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --total-timesteps 2000000 --target-stage 4
+.venv\Scripts\python.exe -m block_stacker.training.train --start-stage 1 --target-stage 4
 
 # S3 にアップロード（fresh/ の最大ステップ checkpoint を最新モデルとして）
 $model = (Get-ChildItem "output\training\fresh" -Filter "sac_*_steps.zip" | Sort-Object Name | Select-Object -Last 1).FullName
@@ -534,7 +535,7 @@ Remove-Item $tmp
 
 為替前提: 1 USD = ¥150（円換算の参考値、実請求は時点レート × USD で確定）。
 
-稼働時間（暫定）: プリセット生成 ~1h/月（月初 10k steps）、デモ+学習配信 176h/月（平日 10-18 JST、祝日除く）
+稼働時間（暫定）: プリセット生成 ~35分/月（月初 5k steps）、デモ+学習配信 176h/月（平日 10-18 JST、祝日除く）
 
 | 項目 | USD/月 | ¥/月 |
 |---|---|---|
@@ -551,9 +552,9 @@ Remove-Item $tmp
 
 > デモ行は**推奨 c6a.2xlarge**。段階を変えると合計が動く（最低 c6a.xlarge: -¥1,300 → 約 ¥7,600、
 > 最高 m7a.2xlarge: +¥1,000 → 約 ¥9,900）。3 段階の根拠は design.md §8.3.1。
-> プリセット生成を月初 10k（~1h）に縮小したことで旧「学習 16h ¥480」→ ¥30。
+> プリセット生成を月初 5k（~35分）に縮小したことで旧「学習 16h ¥480」→ ¥30。
 
-旧運用（隔週土曜フルカリキュラム学習 16h/月）から、**プリセット生成を月初 10k steps に縮小**し、
+旧運用（隔週土曜フルカリキュラム学習 16h/月）から、**プリセット生成を月初 5k steps に縮小**し、
 学習の主体を live_server の平日連続学習へ移した結果。
 月額はほぼ据置だが、視聴機会が **2.6 倍** に増加。学習頻度は減るので、ローカルでの学習併用が前提。
 
@@ -985,7 +986,7 @@ memory_system:
 
 ### F.9 学習頻度・シード生成の調整
 
-**何ができるか:** 現状（暫定）は「月初 1 回・Stage3 のみ 10k steps でシード生成」＋「平日 live_server 連続学習」。
+**何ができるか:** 現状（暫定）は「月初 1 回・Stage3 のみ 5k steps でシード生成」＋「平日 live_server 連続学習」。
 シードのステップ数・頻度、平日学習の 8h 枠を運用実績を見て調整する。
 
 **前提:** F.1（記憶永続化）が実装されていれば、間が空いても学習を引き継げる。
@@ -1039,7 +1040,7 @@ memory_system:
 ```
 
 - `--n-envs 6`: 物理コア数に合わせる（クラウドは 8、ローカルは 4〜6）
-- `--target-stage 4`: 走るステージの上限（既定）。総手数は `stages[].steps` の合計＝既定 165,000。`--stage-steps` で上書き可
+- **既定は Stage 3 のみ 5,000 steps（プリセット生成）**。フルカリキュラムは `--start-stage 1 --target-stage 4`（計 160,000）。`--stage-steps` で上書き可
 - `output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip` が全ステージ走破後に **1 本**保存される（ステージ番号はファイル名に含まれない。`sac_final.zip` は廃止）
 
 ### G.2 TensorBoard で学習曲線を見る（別ターミナル）

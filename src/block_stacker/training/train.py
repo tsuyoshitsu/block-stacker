@@ -351,15 +351,22 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--curriculum", action=argparse.BooleanOptionalAction, default=True,
                         help="Stage 1→N を順に自動学習（既定 ON）。--no-curriculum で Stage 1 のみ")
-    parser.add_argument("--start-stage", type=int, default=1,
-                        help="--curriculum 時の開始ステージ番号（1始まり）")
+    parser.add_argument(
+        "--start-stage", type=int, default=3,
+        help=(
+            "--curriculum 時の開始ステージ番号（1始まり、既定 3）。"
+            "既定は**プリセット生成**（Stage 3 のみ）に合わせてある。"
+            "フルカリキュラムを回すなら --start-stage 1 --target-stage 4 を明示する。"
+        ),
+    )
     parser.add_argument("--max-stage", type=int, default=None,
                         help="最後に走るステージ番号（既定=全ステージ）")
     parser.add_argument(
-        "--target-stage", type=int, default=4,
+        "--target-stage", type=int, default=3,
         help=(
-            "最後に走るステージ番号（既定 4）。--max-stage と同義で、厳しい方が採用される。"
-            "全 5 ステージ走らせるなら --target-stage 5。"
+            "最後に走るステージ番号（既定 3）。--max-stage と同義で、厳しい方が採用される。"
+            "既定の start=3 と合わせて**引数なし実行＝プリセット生成**（Stage 3 のみ）になる。"
+            "全 5 ステージ走らせるなら --start-stage 1 --target-stage 5。"
             "**卒業判定は廃止されたので「ここまで到達したら終了」ではなく単なる上限**。"
             "--no-curriculum との併用時は無視される。"
         ),

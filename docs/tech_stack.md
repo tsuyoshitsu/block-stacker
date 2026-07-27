@@ -79,7 +79,7 @@ SB3 の `DictReplayBuffer` を継承し、以下 4 つの機能を追加して�
 
 難易度を段階的に上げていく学習スケジューリングの仕組み（`training/curriculum.py`）。最初は簡単なステージで基礎を学ばせ、決められたステップ数を消化したら次の難易度へ進む（**固定ステップ制**。卒業判定は行わない）。
 
-- **用途**: Stage 1（cube のみ）→ Stage 2（cube 増量）→ Stage 3（cuboid 追加）→ Stage 4（三角柱追加）→ Stage 5（円柱追加・全形状）の 5 段階。各ステージの予算は `stages[].steps`（既定 60k/35k/10k/60k/70k。Stage 3=10k はプリセット生成の標準値を兼ねる）で、`--stage-steps` により一括／ステージ別に上書きできる。`StageMonitorCallback` は success_rate と all_placed を記録するのみで進行には影響しない。
+- **用途**: Stage 1（cube のみ）→ Stage 2（cube 増量）→ Stage 3（cuboid 追加）→ Stage 4（三角柱追加）→ Stage 5（円柱追加・全形状）の 5 段階。各ステージの予算は `stages[].steps`（60k/35k/5k/60k/70k。Stage 3=5k はプリセット生成の標準値を兼ね、train の既定はこの Stage 3 のみを走る）で、`--stage-steps` により一括／ステージ別に上書きできる。`StageMonitorCallback` は success_rate と all_placed を記録するのみで進行には影響しない。
 - **採用理由**: ランダム初期化から最終ステージを一気に学習させると難しすぎて学習が収束しない。カリキュラムにより段階的に難度を上げることで、より安定した学習が実現できる。
 
 ---

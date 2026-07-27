@@ -17,9 +17,10 @@ class TestBuildParserTrain:
     def _parse(self, extra: list[str] | None = None) -> object:
         return _build_parser().parse_args(extra or [])
 
-    def test_default_target_stage_is_4(self) -> None:
+    def test_default_target_stage_is_3(self) -> None:
+        # 既定は「プリセット生成」（Stage 3 のみ）。start=3 と対で意味を持つ。
         args = self._parse()
-        assert args.target_stage == 4
+        assert args.target_stage == 3
 
     def test_explicit_target_stage(self) -> None:
         args = self._parse(["--target-stage", "5"])
@@ -37,9 +38,25 @@ class TestBuildParserTrain:
         args = self._parse(["--no-curriculum"])
         assert args.curriculum is False
 
-    def test_default_start_stage(self) -> None:
+    def test_default_start_stage_is_3(self) -> None:
         args = self._parse()
-        assert args.start_stage == 1
+        assert args.start_stage == 3
+
+    def test_defaults_mean_preset_generation(self) -> None:
+        """引数なし実行＝プリセット生成（Stage 3 のみ）であること。
+
+        回帰: 既定が start=1/target=4（フルカリキュラム）に戻ると、
+        運用の本線であるプリセット生成が引数なしで実行できなくなる。
+        """
+        args = self._parse()
+        assert args.start_stage == args.target_stage == 3
+        assert args.stage_steps is None       # steps は yaml の Stage 3 既定を使う
+        assert args.curriculum is True
+
+    def test_full_curriculum_needs_explicit_range(self) -> None:
+        # フルカリキュラムは明示指定が必要（既定ではもう走らない）。
+        args = self._parse(["--start-stage", "1", "--target-stage", "4"])
+        assert (args.start_stage, args.target_stage) == (1, 4)
 
     def test_default_max_stage_none(self) -> None:
         args = self._parse()

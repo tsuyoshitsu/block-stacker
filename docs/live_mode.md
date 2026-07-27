@@ -18,7 +18,7 @@
 
 `live_server.py` はランダム初期化モデルから直接起動できません。
 ランダム重みでは積み木を全く積めず、視聴に値する行動が取れないためです。
-**標準は Stage 3 のみ 10k steps のプリセット**（掴む・運ぶはできるが積めない「不器用な子供」）。
+**標準は Stage 3 のみ 5k steps のプリセット**（掴む・運ぶはできるが積めない「不器用な子供」）。
 コンセプト上わざと不出来さを残すので、Stage 4/5 まで仕上げる必要はない。
 
 ### 手順: train.py でプリセットを生成する
@@ -27,18 +27,18 @@
 （**卒業判定は廃止**。経緯は [`docs/design_change_record.md`](design_change_record.md) §1.2.1）。
 走り切った時点でプリセットが `fresh/` に 1 本保存されます。
 
-> **標準は下の 1 本目（Stage 3 のみ）**。ただし**ステージ範囲は既定ではない**ので
-> `--start-stage 3 --target-stage 3` の明示が必要（既定は `start=1 / target=4`）。
+> **train の既定がプリセット生成**（`--start-stage` / `--target-stage` とも既定 3）なので、
+> 引数なしで実行すればよい。フルカリキュラムを回すときだけ範囲を明示する。
 
 ```powershell
-# ---- ライブ用プリセット（標準・Stage 3 のみ 10k＝Stage3 の既定、約1.1h）----
-.venv\Scripts\python.exe -m block_stacker.training.train --start-stage 3 --target-stage 3
-
-# ---- 全 Stage 1→4 を回す場合（n_envs は既定 1。合計 165,000 = 約18時間）----
+# ---- ライブ用プリセット（既定。Stage 3 のみ 5k、約35分）----
 .venv\Scripts\python.exe -m block_stacker.training.train
 
-# ---- Stage 5（全形状）まで（合計 235,000 = 約26時間）----
-.venv\Scripts\python.exe -m block_stacker.training.train --target-stage 5
+# ---- 全 Stage 1→4 を回す場合（合計 160,000 = 約18時間）----
+.venv\Scripts\python.exe -m block_stacker.training.train --start-stage 1 --target-stage 4
+
+# ---- Stage 5（全形状）まで（合計 230,000 = 約26時間）----
+.venv\Scripts\python.exe -m block_stacker.training.train --start-stage 1 --target-stage 5
 
 # 生成物（いずれも同じ場所）:
 #   output/training/fresh/sac_<YYYYMMDD-HHMMSS>_<steps>_steps.zip  ← NN 重み（プリセット1本のみ）
@@ -50,9 +50,9 @@
 （`--target-stage` は「走る範囲の上限」であって、到達で終了する条件ではありません）。
 
 ```json
-// resume_state.json 例（標準レシピ: Stage 3 のみ 10k）
+// resume_state.json 例（既定: Stage 3 のみ 5k）
 {
-  "num_timesteps": 10000,
+  "num_timesteps": 5000,
   "next_stage_id": 3,
   "completed_stages": [3],
   "timestamp": "2026-07-21T09:41:19"
@@ -73,7 +73,7 @@
 
 | プリセット | 位置づけ | 説明 |
 |---|---|---|
-| **Stage 3 のみ 10k（標準）** | ◎ 本線 | 掴む・運ぶはできるが積めない。Stage 5 の世界で未知形状に手こずる「不出来さ」が残る |
+| **Stage 3 のみ 5k（既定）** | ◎ 本線 | 掴む・運ぶはできるが積めない。Stage 5 の世界で未知形状に手こずる「不出来さ」が残る |
 | Stage 4 到達 | ○ | 三角柱まで学習済み。より器用になる |
 | Stage 5 到達 | ○（上手すぎ注意）| 全形状習得。コンセプト（不出来さ）とはやや逆方向 |
 
