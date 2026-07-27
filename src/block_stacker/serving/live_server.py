@@ -17,8 +17,10 @@ Session lifecycle (8 h):
     1. Load snapshot from --snapshot-dir (NN weights + replay_buffer + resume_state).
     2. Apply time-decay to long-term memory proportional to elapsed wall time.
     3. Stream 1x demo while training runs in background.
-    4. After --duration seconds: stop_event -> join training thread
-       -> save snapshot [Step D+] -> exit.
+    4. On --duration elapsing **or SIGTERM/SIGINT**: stop_event -> join training thread
+       -> save snapshot -> exit.
+       SIGTERM は `docker stop` / systemd / Spot 中断ハンドラが送る。ハンドラを入れないと
+       Python 既定の即時終了になり finally が回らず、snapshot が保存されない。
 
 Run:
     .venv/Scripts/python.exe -m block_stacker.serving.live_server ^
@@ -30,6 +32,7 @@ import argparse
 import asyncio
 import json
 import logging
+import signal
 import threading
 from datetime import datetime
 from pathlib import Path
@@ -312,6 +315,53 @@ def _save_live_snapshot(
     )
 
 
+# ----------------------------------------------------------------- shutdown
+
+# 学習スレッドの snapshot 保存を待つ上限。replay_buffer.pkl は約 1.6GB あり、
+# gp3 (125 MB/s) への pickle 書き出しに実測 10〜20 秒かかる。
+# Spot 中断の猶予は 2 分しかないので、その中に
+#   検知(<=5s) + ここ(<=60s) + S3 へ 1.6GB upload(~15s)
+# が収まるよう 60 秒に取ってある。deploy/userdata/live.sh の `docker stop -t` と揃えること。
+SNAPSHOT_SAVE_TIMEOUT_SEC = 60.0
+
+# 猶予付きで終了させたいシグナル。SIGTERM は `docker stop` / systemd が送る。
+SHUTDOWN_SIGNALS = ("SIGTERM", "SIGINT")
+
+
+def install_shutdown_handlers(
+    loop: asyncio.AbstractEventLoop, event: asyncio.Event,
+) -> list[str]:
+    """Route SIGTERM/SIGINT to *event* so the shutdown path runs. Returns the names installed.
+
+    これが無いと SIGTERM は Python の既定動作（即時終了）になり、`finally` が回らない。
+    つまり `docker stop live` でプロセスが落ちても **snapshot が 1 バイトも保存されない**。
+    Spot 中断でその日の学習が丸ごと消えていたのはこれが原因。
+
+    プラットフォームやスレッドによって扱えないシグナルは黙って飛ばす
+    （Windows では SIGTERM が実質配送されないが、ローカル開発では問題にならない）。
+    """
+    installed: list[str] = []
+
+    def _request_shutdown(signum: int, _frame: Any) -> None:
+        LOG.info("signal %s received; shutting down gracefully", signal.Signals(signum).name)
+        loop.call_soon_threadsafe(event.set)
+
+    for name in SHUTDOWN_SIGNALS:
+        sig = getattr(signal, name, None)
+        if sig is None:
+            continue
+        try:
+            signal.signal(sig, _request_shutdown)
+        except (ValueError, OSError):
+            # メインスレッド以外、または未対応プラットフォーム。
+            continue
+        installed.append(name)
+
+    if not installed:
+        LOG.warning("no shutdown signal handler installed; snapshot may be lost on kill")
+    return installed
+
+
 def _self_stop_instance(reason: str) -> None:
     """Stub: request the EC2 instance to stop itself at end of session.
 
@@ -516,27 +566,42 @@ async def main_async(args: argparse.Namespace) -> None:
     ))
     serve_task = asyncio.create_task(server.serve_forever())
 
+    # SIGTERM (docker stop / systemd / Spot 中断ハンドラ) でも下の finally を通す。
+    shutdown_requested = asyncio.Event()
+    install_shutdown_handlers(asyncio.get_running_loop(), shutdown_requested)
+
+    run_task = asyncio.gather(physics_task, ai_task, serve_task)
+    signal_task = asyncio.create_task(shutdown_requested.wait())
+    reason = "tasks completed"
     try:
-        if args.duration > 0:
-            try:
-                await asyncio.wait_for(
-                    asyncio.gather(physics_task, ai_task, serve_task),
-                    timeout=args.duration,
-                )
-            except TimeoutError:
-                LOG.info("--duration %.0fs elapsed, shutting down", args.duration)
-        else:
-            await asyncio.gather(physics_task, ai_task, serve_task)
+        done, _pending = await asyncio.wait(
+            {run_task, signal_task},
+            timeout=args.duration if args.duration > 0 else None,
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+        if not done:
+            LOG.info("--duration %.0fs elapsed, shutting down", args.duration)
+            reason = "duration elapsed"
+        elif signal_task in done:
+            reason = "shutdown signal"
     finally:
+        signal_task.cancel()
+        run_task.cancel()
         stop_event.set()
         if train_thread is not None and train_thread.is_alive():
-            LOG.info("waiting for training thread to stop (timeout 15 s)...")
-            train_thread.join(timeout=15.0)
+            LOG.info(
+                "waiting for training thread to save its snapshot (timeout %.0f s)...",
+                SNAPSHOT_SAVE_TIMEOUT_SEC,
+            )
+            train_thread.join(timeout=SNAPSHOT_SAVE_TIMEOUT_SEC)
             if train_thread.is_alive():
-                LOG.warning("training thread did not stop within 15 s")
+                LOG.warning(
+                    "training thread did not stop within %.0f s; snapshot may be incomplete",
+                    SNAPSHOT_SAVE_TIMEOUT_SEC,
+                )
         world.disconnect()
         LOG.info("world disconnected")
-        _self_stop_instance(reason="duration elapsed")
+        _self_stop_instance(reason=reason)
 
 
 # ----------------------------------------------------------------- entry point

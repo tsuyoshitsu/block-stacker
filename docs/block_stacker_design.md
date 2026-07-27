@@ -977,8 +977,16 @@ handler.py の `_resolve_instance_ids(event)` が payload 優先、未指定な�
   長期記憶は経過日数ぶんの時間減衰を受けて引き継がれる（`resume:` 設定）。
 
 **セッション終了時 (Spot 中断 or 18:00 シャットダウン):**
-- ブロック現ポーズを `s3://bucket/world_state/` に保存
-- 最新モデル + replay_buffer を S3 (`models/` / `state/`) に保存（live_server の `_save_live_snapshot`）
+
+順序が重要。`/usr/local/bin/bs_flush_s3.sh` が両方の経路から呼ばれ、
+
+1. `docker stop -t 60 live` → live_server が **SIGTERM** を受けて `_save_live_snapshot()` を実行し、
+   モデル + replay_buffer + resume_state を `/opt/bs/models/` に書き出す
+2. `/opt/bs/models/` → `s3://bucket/models/`、`/opt/bs/state/` → `s3://bucket/world_state/` を sync
+
+> **先に sync してはいけない**。live_server は停止シグナルを受けて初めて snapshot を書くので、
+> 順序が逆だと古い内容しか S3 に上がらない。猶予 60 秒は `SNAPSHOT_SAVE_TIMEOUT_SEC` と揃えてある
+> （1.6GB の replay_buffer 書き出しに実測 10〜20 秒）。
 
 **セッション開始時:**
 - S3 から world_state をロード → PyBullet に復元
@@ -989,7 +997,9 @@ handler.py の `_resolve_instance_ids(event)` が payload 優先、未指定な�
 
 各 EC2 に systemd サービス `spot-handler.service` を常駐：
 - IMDS の `/spot/instance-action` を 5 秒間隔でポーリング
-- 中断検知 → S3 に状態保存 → Docker 停止 → 90 秒で終了
+- 中断検知 → `bs_flush_s3.sh`（Docker 停止 → models/ + world_state/ を S3 へ）
+
+猶予 2 分の内訳: 検知 ≤5 秒 + `docker stop -t 60`（snapshot 書き出し）+ 1.6GB upload ≒15 秒。
 
 **自動再起動は無い（ASG 撤去に伴い手放した）**。Spot 中断後は手動で `start-instances` する。
 在庫切れで起動できない場合も手動でインスタンスタイプを変更して再作成する（docs/aws_deployment.md §8）。

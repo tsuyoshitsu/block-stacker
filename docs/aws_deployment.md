@@ -264,8 +264,13 @@ cd C:\Users\iii03\block-stacker\lambda
 [7] aws s3 sync s3://bs-app-*/configs/     /opt/bs/configs/
 [8] docker run ... block-stacker/live ... live_server    ← Endpoint (ecr.dkr) + S3 経由でレイヤ pull
 [9] CloudWatch Agent 設定 → /var/log/userdata.log を集約   ← Endpoint (logs) 経由
-[10] spot interrupt 監視 systemd service を常駐
+[10] /usr/local/bin/bs_flush_s3.sh を配置（停止/中断の共通退避処理）
+[11] bs-flush.service（停止時 ExecStop）+ spot-handler.service（中断検知）を常駐
 ```
+
+> user-data が走るのは**初回ブートのみ**です。日次の stop→start でコンテナが戻るのは
+> `docker run --restart always` の効果によるもので、S3 からの復元 [5]〜[7] は
+> 初回とインスタンス作り直しの時だけ通ります。
 
 **学習 EC2 (`learner.sh`)** も同様の流れで、`docker run ... training.train` が走り、全ステージ走破後にプリセット 1 本を S3 に書き戻します。
 

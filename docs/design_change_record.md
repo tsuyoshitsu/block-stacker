@@ -562,6 +562,30 @@ ECR に push する案（3 リポジトリ化）も考えたが、ビルド順�
 実際、卒業誤検出を調査した時点の run には報酬系のタグが1つも無く、
 スカラーは 10 種（`curriculum/*`, `rollout/success_rate`, `time/fps`, `train/*`）のみだった。
 
+### 5.7.1 バグ修正: 停止・Spot 中断で snapshot が S3 に退避されていなかった
+
+Spot 中断 terminate で**その日の学習（最大 8 時間分）が EBS ごと消える**状態だった。原因は 2 段:
+
+| | 症状 | 原因 |
+|---|---|---|
+| ① | 退避対象が `world_state/` だけ | 中断ハンドラが `/opt/bs/state/` しか sync せず、snapshot の置き場所 `/opt/bs/models/` が漏れていた |
+| ② | **そもそも snapshot が書かれていない** | `docker stop` の SIGTERM は Python 既定で即時終了。`_save_live_snapshot()` を呼ぶ `finally` が回らない。①だけ直しても古い内容が上がるだけだった |
+
+**修正**
+
+- `live_server` に SIGTERM/SIGINT ハンドラ（`install_shutdown_handlers`）を追加。`--duration` 到達と
+  同じ shutdown パスを通るようにし、学習スレッドの join を 15 秒 → `SNAPSHOT_SAVE_TIMEOUT_SEC`（60 秒）へ。
+  1.6GB の `replay_buffer.pkl` 書き出しに実測 10〜20 秒かかるため 15 秒では切れていた。
+- `bs_flush_s3.sh` を新設し、**`docker stop -t 60` → `models/` と `world_state/` を sync** の順に統一。
+  Spot 中断ハンドラと停止時 unit（`bs-flush.service` の `ExecStop`）の両方から呼ぶ。
+  通常の日次停止でも S3 が最新になるので、terminate や作り直しに耐える。
+- コンテナの restart policy を `unless-stopped` → **`always`**。`bs-flush.service` が `docker stop` する
+  ため、`unless-stopped` だと「手動停止扱い」になって**翌営業日の start で復帰しない**。
+  user-data は初回ブートでしか走らないので、日次復帰は restart policy 頼み。
+
+回帰は `tests/test_userdata_live.py` で固定（退避対象・順序・復元 prefix の一致・猶予秒数の整合・
+restart policy・SIGTERM ハンドラの登録）。実 AWS は叩けないのでスクリプト本文への静的検査。
+
 ### 5.8 検討したが不採用: Docker 実行基盤を Fargate へ
 
 コンテナ化が済んだ時点で「EC2 を管理せず ECS Fargate で回せないか」を検討したが、**live は EC2 のまま**とした。
