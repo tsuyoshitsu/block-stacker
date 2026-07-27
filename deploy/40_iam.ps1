@@ -72,10 +72,10 @@ if ($LASTEXITCODE -ne 0) {
         --assume-role-policy-document $lambdaAssume | Out-Null
 }
 
-$lambdaAsgPolicy = @'
-{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["autoscaling:UpdateAutoScalingGroup","autoscaling:DescribeAutoScalingGroups"],"Resource":"*"}]}
+$lambdaEc2Policy = @'
+{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ec2:StartInstances","ec2:StopInstances","ec2:DescribeInstances"],"Resource":"*"}]}
 '@
-aws iam put-role-policy --role-name bs-lambda-role --policy-name asg --policy-document $lambdaAsgPolicy | Out-Null
+aws iam put-role-policy --role-name bs-lambda-role --policy-name ec2-power --policy-document $lambdaEc2Policy | Out-Null
 
 aws iam attach-role-policy --role-name bs-lambda-role `
     --policy-arn "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole" 2>&1 | Out-Null

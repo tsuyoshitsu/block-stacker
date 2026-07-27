@@ -1,22 +1,29 @@
 """EventBridge Scheduler が呼び出す scale_up / scale_down Lambda。
 
 scale_up:
-    - 当日が日本の祝日でなければ、指定された ASG の desired_capacity を 1 に。
+    - 当日が日本の祝日でなければ、指定されたインスタンスを start する。
     - 祝日ならスキップ + ログ出力。
 
 scale_down:
-    - 祝日判定なしで指定された ASG の desired_capacity を 0 に。
+    - 祝日判定なしで指定されたインスタンスを stop する。
 
-対象 ASG の決定:
-    - event["asg_names"] (list[str]) があればそれを使う（払い出された payload 駆動）。
-    - 無ければ環境変数 ASG_NAMES (JSON 配列文字列) の全リストを使う。
-      → 手動 invoke や旧仕様の payload なしスケジュールで全 ASG を一括制御する用。
+対象インスタンスの決定:
+    - event["instance_ids"] (list[str]) があればそれを使う（払い出された payload 駆動）。
+    - 無ければ環境変数 INSTANCE_IDS (JSON 配列文字列) の全リストを使う。
+      → 手動 invoke で全インスタンスを一括制御する用。
 
-スケジュール構成（schedule.tf / 70_lambda.ps1 と一致させる）:
-    bs-learner-start  cron(0 5 ? * SAT#2,SAT#4 *)  payload {"asg_names": ["bs-learner-asg"]}
-    bs-learner-stop   cron(0 13 ? * SAT#2,SAT#4 *) 同上
-    bs-demo-start     cron(0 5 ? * MON-FRI *)       payload {"asg_names": ["bs-demo-asg", "bs-streamer-asg"]}
-    bs-demo-stop      cron(0 13 ? * MON-FRI *)      同上
+ASG からの移行について:
+    かつては ASG の desired_capacity を 0/1 する実装だったが、min=0/max=1 で
+    スケールしておらず実態は「起動/停止スイッチ」だったため、単一 EC2 の
+    start/stop に置き換えた（docs/design_change_record.md）。
+    stop は terminate と違い EBS が保持されるので、live_server のスナップショットや
+    world_state がインスタンス上に残る。
+
+スケジュール構成（70_lambda.ps1 と一致させる。時刻は暫定）:
+    bs-learner-start  cron(0 0 1 * ? *)       payload {"instance_ids": ["<learner>"]}
+    bs-learner-stop   cron(0 2 1 * ? *)       同上
+    bs-demo-start     cron(0 1 ? * MON-FRI *) payload {"instance_ids": ["<demo>", "<streamer>"]}
+    bs-demo-stop      cron(0 9 ? * MON-FRI *) 同上
 """
 import json
 import logging
@@ -30,15 +37,15 @@ import jpholiday
 LOG = logging.getLogger()
 LOG.setLevel(logging.INFO)
 
-ASG = boto3.client("autoscaling")
+EC2 = boto3.client("ec2")
 JST = ZoneInfo("Asia/Tokyo")
 
 
-def _resolve_asg_names(event) -> list[str]:
-    """払い出された payload に asg_names があればそれを、なければ env var を使う。"""
-    if isinstance(event, dict) and event.get("asg_names"):
-        return list(event["asg_names"])
-    raw = os.environ.get("ASG_NAMES", "[]")
+def _resolve_instance_ids(event) -> list[str]:
+    """払い出された payload に instance_ids があればそれを、なければ env var を使う。"""
+    if isinstance(event, dict) and event.get("instance_ids"):
+        return list(event["instance_ids"])
+    raw = os.environ.get("INSTANCE_IDS", "[]")
     return list(json.loads(raw))
 
 
@@ -46,21 +53,27 @@ def scale_up(event, context):
     today = datetime.now(JST).date()
     if jpholiday.is_holiday(today):
         name = jpholiday.is_holiday_name(today)
-        LOG.info("Today (%s) is a Japanese holiday (%s); skipping scale up",
+        LOG.info("Today (%s) is a Japanese holiday (%s); skipping start",
                  today.isoformat(), name)
         return {"skipped": True, "reason": "holiday", "date": today.isoformat()}
 
-    names = _resolve_asg_names(event)
-    for name in names:
-        ASG.update_auto_scaling_group(AutoScalingGroupName=name, DesiredCapacity=1)
-        LOG.info("scale up: %s desired=1", name)
-    return {"scaled_up": names, "date": today.isoformat()}
+    ids = _resolve_instance_ids(event)
+    if not ids:
+        LOG.warning("no instance ids resolved; nothing to start")
+        return {"started": [], "date": today.isoformat()}
+
+    EC2.start_instances(InstanceIds=ids)
+    LOG.info("start: %s", ids)
+    return {"started": ids, "date": today.isoformat()}
 
 
 def scale_down(event, context):
-    names = _resolve_asg_names(event)
+    ids = _resolve_instance_ids(event)
     today = datetime.now(JST).date()
-    for name in names:
-        ASG.update_auto_scaling_group(AutoScalingGroupName=name, DesiredCapacity=0)
-        LOG.info("scale down: %s desired=0", name)
-    return {"scaled_down": names, "date": today.isoformat()}
+    if not ids:
+        LOG.warning("no instance ids resolved; nothing to stop")
+        return {"stopped": [], "date": today.isoformat()}
+
+    EC2.stop_instances(InstanceIds=ids)
+    LOG.info("stop: %s", ids)
+    return {"stopped": ids, "date": today.isoformat()}

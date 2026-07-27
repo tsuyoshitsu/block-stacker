@@ -37,12 +37,11 @@ foreach ($f in "bs-scale-up", "bs-scale-down") {
     Try-Run { aws lambda delete-function --function-name $f 2>&1 | Out-Null }
 }
 
-# 3) ASG (terminate instances) -> Launch Templates
+# 3) EC2 インスタンス (terminate) -> Launch Templates
 Write-Step "Auto Scaling Groups"
-if ($state.asg_names) {
-    foreach ($n in $state.asg_names.streamer, $state.asg_names.demo, $state.asg_names.learner) {
-        Try-Run { aws autoscaling update-auto-scaling-group --auto-scaling-group-name $n --min-size 0 --max-size 0 --desired-capacity 0 2>&1 | Out-Null }
-        Try-Run { aws autoscaling delete-auto-scaling-group --auto-scaling-group-name $n --force-delete 2>&1 | Out-Null }
+if ($state.instance_ids) {
+    foreach ($n in $state.instance_ids.streamer, $state.instance_ids.demo, $state.instance_ids.learner) {
+        Try-Run { aws ec2 terminate-instances --instance-ids $n 2>&1 | Out-Null }
     }
 }
 

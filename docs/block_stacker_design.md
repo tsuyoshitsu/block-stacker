@@ -851,7 +851,7 @@ ap-northeast-1 (Tokyo)
   バックグラウンドで継続学習**する。前営業日のスナップショットを引き継ぐので、月を通して
   シードから少しずつ賢くなる。
 
-| Scheduler | Cron (UTC) | JST 時刻 | 月間時間 | 対象 ASG |
+| Scheduler | Cron (UTC) | JST 時刻 | 月間時間 | 対象インスタンス |
 |----------|---------|---------|---------|---------|
 | **bs-learner-start** | `cron(0 0 1 * ? *)` | 毎月 1 日 09:00 | プリセット生成 ~1h/月 | bs-learner-asg |
 | **bs-learner-stop** | `cron(0 2 1 * ? *)` | 毎月 1 日 11:00 | 同上（完了で self-stop、この cron は保険） | 同上 |
@@ -871,14 +871,15 @@ ap-northeast-1 (Tokyo)
 
 #### Lambda 構成
 
-1 ペア (`bs-scale-up` / `bs-scale-down`) を共有し、各 Scheduler の `input` payload で対象 ASG を指定：
+1 ペア (`bs-scale-up` / `bs-scale-down`) を共有し、各 Scheduler の `input` payload で対象インスタンスを指定：
 
 ```json
 { "asg_names": ["bs-learner-asg"] }
 { "asg_names": ["bs-demo-asg", "bs-streamer-asg"] }
 ```
 
-handler.py の `_resolve_asg_names(event)` が payload 優先、未指定なら env var `ASG_NAMES` フォールバック。
+handler.py の `_resolve_instance_ids(event)` が payload 優先、未指定なら env var `INSTANCE_IDS` フォールバック。
+**ASG は撤去済み**で、Lambda は `ec2:StartInstances` / `StopInstances` を呼ぶ（経緯は design_change_record.md）。
 
 祝日は `jpholiday.is_holiday()` で skip（学習・デモ両方とも）。
 
@@ -990,7 +991,9 @@ handler.py の `_resolve_asg_names(event)` が payload 優先、未指定なら 
 - IMDS の `/spot/instance-action` を 5 秒間隔でポーリング
 - 中断検知 → S3 に状態保存 → Docker 停止 → 90 秒で終了
 
-ASG + Mixed Instances Policy + capacity-optimized で自動再起動。
+**自動再起動は無い（ASG 撤去に伴い手放した）**。Spot 中断後は手動で `start-instances` する。
+在庫切れで起動できない場合も手動でインスタンスタイプを変更して再作成する（docs/aws_deployment.md §8）。
+stop は terminate と違い EBS を保持するので、スナップショットや world_state はディスク上に残る。
 
 ### 8.8 ECR / Docker
 
@@ -1077,10 +1080,10 @@ ASG + Mixed Instances Policy + capacity-optimized で自動再起動。
 | AWS | デモ | c6a.2xlarge Spot（推奨。最低 c6a.xlarge / 最高 m7a.2xlarge、§8.3.1）|
 | AWS | 配信 | t4g.small Spot + Caddy（自動 TLS） |
 | AWS | LB | なし（EC2 + EIP + Caddy） |
-| AWS | スケジューラ | **EventBridge × 4 + Lambda 1 ペア（payload で対象 ASG 切替）** |
+| AWS | スケジューラ | **EventBridge × 4 + Lambda 1 ペア（payload で対象インスタンス切替、start/stop）** |
 | AWS | Private Subnet 接続 | **S3 Gateway + ECR/Logs Interface Endpoint × 3** (NAT 不採用) |
 | AWS | 状態引き継ぎ | S3 に world_state / models 保存 → 起動時復元 |
-| AWS | Spot 中断対応 | IMDS 中断通知監視 → graceful save、ASG で自動再起動 |
+| AWS | Spot 中断対応 | IMDS 中断通知監視 → graceful save。**自動再起動なし**（ASG 撤去。手動 start） |
 | AWS | 監視 | CloudWatch Logs/Metrics/Alarms |
 | AWS | **月額コスト（暫定）** | **約 ¥8,900 (約 $59)**（推奨 c6a.2xlarge 前提。§8.10） |
 | 設定 | ファイル | world / physics / training / reward の 4 YAML |

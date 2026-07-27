@@ -35,10 +35,15 @@ $script:BS = @{
 
     # EC2
     StreamerType  = "t4g.small"
-    DemoType      = "c6i.xlarge"
-    # 学習: AMD EPYC CPU-only (8 物理コア)。GPU 不要なため g4dn から差替で約 40% コスト減。
+    # デモ（配信＋バックグラウンド学習の融合）。表示の 240Hz 物理に物理コアを 1 つ専有させたいので
+    # 4 物理コア以上が要る。3 段階の選定根拠は docs/block_stacker_design.md §8.3.1。
+    #   最低 c6a.xlarge / 推奨 c6a.2xlarge / 最高 m7a.2xlarge
+    DemoType      = "c6a.2xlarge"
+    # 学習: AMD EPYC CPU-only。月初のプリセット生成（5,000 steps・約35分）にのみ使う。
     LearnerType   = "c6a.4xlarge"
-    LearnerFallback = @("c6a.4xlarge", "c6i.4xlarge", "c7a.4xlarge", "m6a.4xlarge")
+    # Spot 在庫切れ時の代替候補。**ASG 撤去に伴い自動フォールバックは無くなった**ので、
+    # 起動に失敗したら手動でこの中から LearnerType を差し替えて再実行する（docs §8 参照）。
+    LearnerFallbackCandidates = @("c6i.4xlarge", "c7a.4xlarge", "m6a.4xlarge")
 
     StateFile     = Join-Path $PSScriptRoot "state.json"
     UserdataDir   = Join-Path $PSScriptRoot "userdata"

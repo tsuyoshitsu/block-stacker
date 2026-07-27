@@ -1,4 +1,13 @@
 # block-stacker AWS インフラ Terraform エントリ。
+#
+# ⚠️ **これは参照用の「ASG 版」であり、現行のデプロイ経路ではない。**
+#   現行は deploy/ の PowerShell + AWS CLI（docs/aws_deployment.md）。
+#   そちらは **ASG を撤去して単一 EC2 の start/stop 方式**に移行済み。
+#   この Terraform 一式は ASG（Mixed Instances Policy による Spot フォールバック、
+#   中断時の自動再起動）を含む完全な構成を残してあり、将来 ASG を復活させる際の
+#   設計リファレンスとして保持している。撤去の経緯は docs/design_change_record.md。
+#   **現行構成と差分がある前提で読むこと**（インスタンスタイプ・スケジュール等も未追従）。
+#
 # 設計書 §8 と docs/aws_deployment.md に対応。
 #
 # Backend は S3 + DynamoDB lock 想定。最初の terraform init 前に

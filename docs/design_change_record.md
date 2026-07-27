@@ -58,6 +58,8 @@
 - **n_envs=1 / gradient_steps=1**（連動必須）
 - 学習 env は `Monitor` で包む → **`rollout/ep_rew_mean` が出る**
 - AWS: デモEC2 = live_server 主役、推奨 c6a.2xlarge（4コア/16GB）
+- **ASG は撤去**。単一 EC2 を Lambda が start/stop する（§5.5）。Spot の自動フォールバック /
+  中断復帰は手放したので手動対応（docs/aws_deployment.md §8）
 
 ### 未確定・注意（暫定）
 
@@ -449,6 +451,37 @@ env の reward 計算に一度も配線されない **stub** だった。
 
 **現行**: `deploy/` 配下の PowerShell スクリプト。
 旧 Terraform 版は `infra-terraform/` に**参照用として保持**（メンテはしていない）。
+
+### 5.5 Auto Scaling Group の撤去 → 単一 EC2 の start/stop
+
+| | 旧仕様 | 現行 |
+|---|---|---|
+| インスタンス管理 | ASG ×3（`min=0 / max=1`） | **単一 EC2 ×3**（作成後 stop） |
+| 起動/停止 | Lambda が `desired_capacity` を 0⇄1 | Lambda が `ec2:StartInstances` / `StopInstances` |
+| Lambda の payload | `{"asg_names": [...]}` | `{"instance_ids": [...]}` |
+| Lambda env var | `ASG_NAMES` | `INSTANCE_IDS` |
+| IAM | `autoscaling:UpdateAutoScalingGroup` 等 | `ec2:StartInstances` / `StopInstances` / `DescribeInstances` |
+| state キー | `asg_names` | `instance_ids` |
+
+**理由**: `min=0 / max=1` でオートスケーリングは一切しておらず、**実態は「起動/停止スイッチ」**
+だった。目的に対して構成が過剰なので、単一 EC2 の start/stop に置き換えた。
+
+**手放した機能（許容と判断し、手動対応する）**:
+
+| 失った機能 | 代替 |
+|---|---|
+| Spot 在庫切れ時の複数タイプ自動フォールバック（Mixed Instances Policy + capacity-optimized） | `common.ps1` の `DemoType` / `LearnerType` を `LearnerFallbackCandidates` から手動で差し替えて再実行 |
+| Spot 中断後の自動再起動 | 手動で `aws ec2 start-instances` |
+
+いずれも `docs/aws_deployment.md` §8 トラブルシューティングに対処手順を記載した。
+
+**副次的な利点**: ASG の scale-down は **terminate** だが、stop は **EBS を保持**する。
+live_server のスナップショット（`replay_buffer.pkl` / `resume_state.json`）や `world_state` が
+ディスク上に残るため、日次の停止→起動で状態が失われにくい。
+
+> **Terraform 版（`infra-terraform/`）は ASG のまま温存**している。将来 ASG を復活させる際の
+> 設計リファレンスとして意図的に残したもので、現行の `deploy/` とは差分がある
+> （`main.tf` 冒頭にその旨を明記）。
 
 ---
 

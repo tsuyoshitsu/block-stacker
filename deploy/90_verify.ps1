@@ -2,14 +2,14 @@
 
 . $PSScriptRoot/common.ps1
 
-$asgNames = Get-State asg_names
-if (-not $asgNames) {
+$instanceIds = Get-State instance_ids
+if (-not $instanceIds) {
     throw "60_ec2.ps1 が未実行です"
 }
 
-Write-Step "全 ASG を desired_capacity=1 に手動 scale-up"
-foreach ($n in $asgNames.streamer, $asgNames.demo, $asgNames.learner) {
-    aws autoscaling update-auto-scaling-group --auto-scaling-group-name $n --desired-capacity 1
+Write-Step "全インスタンスを手動 start"
+foreach ($n in $instanceIds.streamer, $instanceIds.demo, $instanceIds.learner) {
+    aws ec2 start-instances --instance-ids $n | Out-Null
     Write-Done "$n -> 1"
 }
 

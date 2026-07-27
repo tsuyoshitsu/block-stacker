@@ -1,9 +1,9 @@
 # Step 70: Lambda (scale_up / scale_down) + EventBridge Scheduler (4 系統)。
 #
 # スケジュール構成（lambda/handler.py / infra-terraform/scheduler.tf と一致）:
-#   bs-learner-start  cron(0 5 ? * SAT#2,SAT#4 *)  payload {asg_names: [learner]}
+#   bs-learner-start  cron(0 0 1 * ? *)        payload {instance_ids: [learner]}
 #   bs-learner-stop   cron(0 13 ? * SAT#2,SAT#4 *) 同上
-#   bs-demo-start     cron(0 5 ? * MON-FRI *)       payload {asg_names: [demo, streamer]}
+#   bs-demo-start     cron(0 1 ? * MON-FRI *)  payload {instance_ids: [demo, streamer]}
 #   bs-demo-stop      cron(0 13 ? * MON-FRI *)      同上
 
 . $PSScriptRoot/common.ps1
@@ -13,13 +13,13 @@ $region    = $script:BS.Region
 
 $lambdaRole = Get-State lambda_role_arn
 $schedRole  = Get-State scheduler_role_arn
-$asgNames   = Get-State asg_names
-if (-not ($lambdaRole -and $schedRole -and $asgNames)) {
+$instanceIds = Get-State instance_ids
+if (-not ($lambdaRole -and $schedRole -and $instanceIds)) {
     throw "40_iam / 60_ec2 を先に実行してください"
 }
 
-$asgList = @($asgNames.streamer, $asgNames.demo, $asgNames.learner)
-$asgEnvJson = ($asgList | ConvertTo-Json -Compress).Replace('"', '\"')
+$idList = @($instanceIds.streamer, $instanceIds.demo, $instanceIds.learner)
+$idEnvJson = ($idList | ConvertTo-Json -Compress).Replace('"', '\"')
 
 # --------------------------------------------------------------------
 # Lambda ZIP をビルド (lambda/build.ps1 を呼ぶ)
@@ -55,13 +55,13 @@ function Deploy-Lambda {
         aws lambda update-function-code --function-name $Name `
             --zip-file "fileb://$zipPath" | Out-Null
         aws lambda update-function-configuration --function-name $Name `
-            --environment "Variables={ASG_NAMES=$asgEnvJson}" | Out-Null
+            --environment "Variables={INSTANCE_IDS=$idEnvJson}" | Out-Null
     } else {
         Write-Step "$Name: 新規作成"
         aws lambda create-function --function-name $Name `
             --runtime python3.12 --role $lambdaRole --handler $Handler `
             --zip-file "fileb://$zipPath" --timeout 60 `
-            --environment "Variables={ASG_NAMES=$asgEnvJson}" | Out-Null
+            --environment "Variables={INSTANCE_IDS=$idEnvJson}" | Out-Null
     }
     $arn = aws lambda get-function --function-name $Name --query "Configuration.FunctionArn" --output text
     Write-Done "$Name -> $arn"
@@ -85,7 +85,7 @@ function Deploy-Schedule {
         [string[]]$AsgList
     )
 
-    $inputJson = (@{asg_names = $AsgList} | ConvertTo-Json -Compress)
+    $inputJson = (@{instance_ids = $InstanceIdList} | ConvertTo-Json -Compress)
     $target = @{
         Arn     = $LambdaArn
         RoleArn = $schedRole
@@ -111,12 +111,12 @@ function Deploy-Schedule {
 }
 
 # 学習: 隔週土曜 14-22 JST (= 05:00-13:00 UTC, SAT#2 & SAT#4)
-Deploy-Schedule "bs-learner-start" "cron(0 5 ? * SAT#2,SAT#4 *)"   $arnUp   @($asgNames.learner)
-Deploy-Schedule "bs-learner-stop"  "cron(0 13 ? * SAT#2,SAT#4 *)"  $arnDown @($asgNames.learner)
+Deploy-Schedule "bs-learner-start" "cron(0 0 1 * ? *)"      $arnUp   @($instanceIds.learner)
+Deploy-Schedule "bs-learner-stop"  "cron(0 2 1 * ? *)"      $arnDown @($instanceIds.learner)
 
 # デモ + 配信: 平日 14-22 JST (= 05:00-13:00 UTC, MON-FRI)
-Deploy-Schedule "bs-demo-start" "cron(0 5 ? * MON-FRI *)"  $arnUp   @($asgNames.demo, $asgNames.streamer)
-Deploy-Schedule "bs-demo-stop"  "cron(0 13 ? * MON-FRI *)" $arnDown @($asgNames.demo, $asgNames.streamer)
+Deploy-Schedule "bs-demo-start" "cron(0 1 ? * MON-FRI *)" $arnUp   @($instanceIds.demo, $instanceIds.streamer)
+Deploy-Schedule "bs-demo-stop"  "cron(0 9 ? * MON-FRI *)" $arnDown @($instanceIds.demo, $instanceIds.streamer)
 
 # 旧スケジュール (bs-start / bs-stop) が残っていたら削除
 foreach ($old in "bs-start", "bs-stop") {

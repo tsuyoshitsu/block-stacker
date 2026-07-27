@@ -139,63 +139,62 @@ Set-State lt_learner $ltLearner
 # Auto Scaling Groups (全 Spot, capacity-optimized)
 # --------------------------------------------------------------------
 
-function New-Asg {
+# ASG は撤去した（min=0/max=1 でスケールしておらず、実態は「起動/停止スイッチ」だった）。
+# 単一 EC2 を作って即 stop し、以降は Lambda が start/stop する方式に置き換えている。
+# 経緯と ASG 版との差分は docs/design_change_record.md を参照。
+#
+# ASG を失って手放した機能（許容と判断。手動対応する）:
+#   - Spot 在庫切れ時の複数インスタンスタイプ自動フォールバック
+#   - Spot 中断後の自動再起動
+#   → 対処手順は docs/aws_deployment.md §8 トラブルシューティングに記載。
+
+function New-StoppedInstance {
     param(
         [string]$Name,
         [string]$LtId,
-        [string]$SubnetId,
-        [string[]]$Overrides = @()
+        [string]$SubnetId
     )
 
-    $existing = aws autoscaling describe-auto-scaling-groups --auto-scaling-group-names $Name 2>&1
-    if ($LASTEXITCODE -eq 0 -and ($existing | ConvertFrom-Json).AutoScalingGroups.Count -gt 0) {
-        Write-Done "既存 ASG: $Name"
-        return
+    # 既存インスタンス（terminated 以外）があれば再利用する。
+    $existing = aws ec2 describe-instances `
+        --filters "Name=tag:Name,Values=$Name" "Name=instance-state-name,Values=pending,running,stopping,stopped" `
+        --query "Reservations[0].Instances[0].InstanceId" --output text 2>&1
+    if ($LASTEXITCODE -eq 0 -and $existing -and $existing -ne "None") {
+        Write-Done "既存インスタンス: $Name ($existing)"
+        return $existing
     }
 
-    $overrideJson = if ($Overrides.Count -gt 0) {
-        ($Overrides | ForEach-Object { @{InstanceType=$_} }) | ConvertTo-Json -Compress
-    } else { "[]" }
+    # Spot で 1 台起動。--instance-market-options で spot を指定する
+    # （ASG の mixed-instances-policy と違い、タイプのフォールバックは無い）。
+    $iid = aws ec2 run-instances `
+        --launch-template "LaunchTemplateId=$LtId,Version=`$Latest" `
+        --subnet-id $SubnetId `
+        --instance-market-options "MarketType=spot" `
+        --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$Name},{Key=Project,Value=block-stacker}]" `
+        --query "Instances[0].InstanceId" --output text
+    if ($LASTEXITCODE -ne 0 -or -not $iid) {
+        throw "run-instances に失敗しました: $Name（Spot 在庫切れの可能性。common.ps1 のインスタンスタイプを変えて再実行）"
+    }
 
-    $mixed = @"
-{
-  "LaunchTemplate": {
-    "LaunchTemplateSpecification": {"LaunchTemplateId":"$LtId","Version":"`$Latest"},
-    "Overrides": $overrideJson
-  },
-  "InstancesDistribution": {
-    "OnDemandBaseCapacity": 0,
-    "OnDemandPercentageAboveBaseCapacity": 0,
-    "SpotAllocationStrategy": "capacity-optimized"
-  }
-}
-"@
-    $tmp = New-TemporaryFile
-    Set-Content $tmp -Value $mixed -Encoding utf8
-
-    aws autoscaling create-auto-scaling-group `
-        --auto-scaling-group-name $Name `
-        --min-size 0 --max-size 1 --desired-capacity 0 `
-        --vpc-zone-identifier $SubnetId `
-        --health-check-type EC2 --health-check-grace-period 300 `
-        --mixed-instances-policy "file://$($tmp.FullName)" `
-        --tags "Key=Project,Value=block-stacker,PropagateAtLaunch=true" | Out-Null
-    Remove-Item $tmp
-    Write-Done "$Name (desired=0)"
+    # 起動しっぱなしにしないよう、running になり次第すぐ停止する。
+    # 実際の稼働開始は Lambda（EventBridge スケジュール）が start する時点。
+    aws ec2 wait instance-running --instance-ids $iid
+    aws ec2 stop-instances --instance-ids $iid | Out-Null
+    Write-Done "$Name ($iid, stopped)"
+    return $iid
 }
 
-Write-Step "Auto Scaling Groups 作成"
+Write-Step "EC2 インスタンス作成（作成後すぐ stop）"
 
-New-Asg -Name "bs-streamer-asg" -LtId $ltStreamer -SubnetId $publicSubnet
-New-Asg -Name "bs-demo-asg"     -LtId $ltDemo     -SubnetId $privateSubnet
-New-Asg -Name "bs-learner-asg"  -LtId $ltLearner  -SubnetId $privateSubnet `
-    -Overrides $script:BS.LearnerFallback
+$idStreamer = New-StoppedInstance -Name "bs-streamer" -LtId $ltStreamer -SubnetId $publicSubnet
+$idDemo     = New-StoppedInstance -Name "bs-demo"     -LtId $ltDemo     -SubnetId $privateSubnet
+$idLearner  = New-StoppedInstance -Name "bs-learner"  -LtId $ltLearner  -SubnetId $privateSubnet
 
-Set-State asg_names @{
-    streamer = "bs-streamer-asg"
-    demo     = "bs-demo-asg"
-    learner  = "bs-learner-asg"
+Set-State instance_ids @{
+    streamer = $idStreamer
+    demo     = $idDemo
+    learner  = $idLearner
 }
 
 Write-Host ""
-Write-Host "[bs] 60_ec2 完了 (desired=0、稼働は 70_lambda の EventBridge で)" -ForegroundColor Green
+Write-Host "[bs] 60_ec2 完了 (全て stopped、稼働は 70_lambda の EventBridge で start)" -ForegroundColor Green

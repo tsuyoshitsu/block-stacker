@@ -46,7 +46,7 @@
 | 記憶構成 | **3 層**: 勘 + 短期記憶（観測内 5 手）+ 重みつき長期記憶（リプレイバッファ）。詳細は付録 E §1 |
 | 積み木形状 | **4 種**: cube / cuboid / triangular_prism / cylinder。カリキュラムで難易度順に追加（付録 E §1.1） |
 | キャッシュ | なし（現状 Redis 不要。導入条件は付録 D） |
-| スケジューラ | EventBridge × 4 + Lambda 1 ペア（payload で対象 ASG 切替、`jpholiday` で祝日判定） |
+| スケジューラ | EventBridge × 4 + Lambda 1 ペア（payload で対象インスタンス切替、`jpholiday` で祝日判定） |
 | Private 通信 | S3 Gateway + ECR/Logs Interface Endpoint × 3（NAT 不使用） |
 | 想定月額（暫定） | **約 ¥8,900**（年 ¥107,000、推奨 c6a.2xlarge 前提。§コスト管理参照） |
 
@@ -106,7 +106,7 @@
 - Private Subnet は **IGW・NAT を一切持たない**。インターネット境界はEndpoint だけ。
 - Endpoint は **AWS PrivateLink で AWS API 内部に閉じる**。外部通信は発生しない。
 - ECR pull のイメージレイヤは S3 経由（無料の Gateway Endpoint で完結）、API/manifest だけ Interface Endpoint を使う。
-- 全 EC2 は Spot + ASG（`max_size=1`）。EventBridge が稼働時間に `desired=1` へ。
+- 全 EC2 は **Spot の単一インスタンス**（ASG は撤去）。作成時に stop され、EventBridge → Lambda が `start-instances` / `stop-instances` する。
 
 ---
 
@@ -219,7 +219,7 @@ cd C:\Users\iii03\block-stacker\deploy
 ./20_s3.ps1            # App bucket + configs upload
 ./40_iam.ps1           # IAM roles + Instance Profile (ECR pull / S3 / CW Logs)
 ./50_eip.ps1           # EIP + Route 53 A record
-./60_ec2.ps1           # Launch Templates + ASG x3 (desired=0)
+./60_ec2.ps1           # Launch Templates + EC2 x3 (作成後 stop)
 ./70_lambda.ps1        # Lambda + EventBridge (要 lambda/build.ps1 事前実行)
 ./80_cloudwatch.ps1    # Log groups + SNS topic + alarm
 ```
@@ -234,8 +234,8 @@ cd C:\Users\iii03\block-stacker\deploy
 | 20_s3 | (AWS API のみ) | S3 バケット + 4 プレフィックス | `app_bucket` (確認用) |
 | 40_iam | — | EC2/Lambda Role + Instance Profile | `ec2_instance_profile` |
 | 50_eip | 10 | EIP + Route 53 A レコード | `eip_alloc_id`, `eip_public_ip`, `route53_zone_id` |
-| 60_ec2 | 10, 40, 50 | LT × 3 + ASG × 3 (desired=0) | `lt_*`, `asg_names` |
-| 70_lambda | 60 (`asg_names`) | scale_up/down Lambda + EventBridge | `lambda_arn`, `schedule_arn` |
+| 60_ec2 | 10, 40, 50 | LT × 3 + EC2 × 3 (stopped) | `lt_*`, `instance_ids` |
+| 70_lambda | 60 (`instance_ids`) | scale_up/down Lambda + EventBridge | `lambda_arn`, `schedule_arn` |
 | 80_cloudwatch | 60, 70 | Log groups + SNS Topic + Alarm | `sns_topic_arn` |
 
 ### 4.2 Lambda ZIP の事前ビルド
@@ -250,7 +250,7 @@ cd C:\Users\iii03\block-stacker\lambda
 
 ### 4.3 EC2 起動シーケンス（user-data の中身）
 
-`./60_ec2.ps1` までで Launch Template ができても、ASG `desired=0` のため EC2 は起動しません。スケジュール起動 or 手動 scale-up の際、AL2023 AMI で以下が実行されます。
+`./60_ec2.ps1` は EC2 を作成後すぐ stop します。スケジュール起動 or 手動 start の際、AL2023 AMI で以下が実行されます。
 
 **デモ EC2 (`demo.sh`)** の起動フロー：
 
@@ -334,7 +334,7 @@ cd C:\Users\iii03\block-stacker\deploy
 
 このスクリプトは以下を実行：
 
-1. 全 ASG `desired_capacity=1` に
+1. 全インスタンスを `start-instances`
 2. 3 台が running になるまで polling
 3. インスタンス一覧表示
 4. `wss://bs.example.com/` に Python テストクライアントで 15 秒接続
@@ -372,16 +372,17 @@ Get-Content /tmp/out.json
 
 ### 6.1 通常運用
 
-EventBridge Scheduler 4 系統で、ASG ごとに別スケジュール：
+EventBridge Scheduler 4 系統で、対象インスタンスごとに別スケジュール：
 
-| Scheduler | 発火 (UTC) | JST 時刻 | 対象 ASG | payload |
+| Scheduler | 発火 (UTC) | JST 時刻 | 対象 | payload |
 |----------|---------|---------|---------|---------|
-| `bs-learner-start` | `cron(0 0 1 * ? *)` | 毎月 1 日 09:00 | bs-learner-asg | `{"asg_names": ["bs-learner-asg"]}` |
+| `bs-learner-start` | `cron(0 0 1 * ? *)` | 毎月 1 日 09:00 | learner | `{"instance_ids": ["<learner-id>"]}` |
 | `bs-learner-stop`  | `cron(0 2 1 * ? *)`| 毎月 1 日 11:00（完了で self-stop、cron は保険）| 同上 | 同上 |
-| `bs-demo-start`    | `cron(0 1 ? * MON-FRI *)` | 月〜金 10:00 | bs-demo-asg + bs-streamer-asg | `{"asg_names": ["bs-demo-asg", "bs-streamer-asg"]}` |
+| `bs-demo-start`    | `cron(0 1 ? * MON-FRI *)` | 月〜金 10:00 | demo + streamer | `{"instance_ids": ["<demo-id>", "<streamer-id>"]}` |
 | `bs-demo-stop`     | `cron(0 9 ? * MON-FRI *)`| 月〜金 18:00 | 同上 | 同上 |
 
-Lambda は 1 ペア（`bs-scale-up` / `bs-scale-down`）を 4 スケジュールが共有し、payload で対象 ASG を切り替える設計。
+Lambda は 1 ペア（`bs-scale-up` / `bs-scale-down`）を 4 スケジュールが共有し、payload で対象インスタンスを切り替える設計。
+**stop は terminate と違い EBS を保持する**ので、live_server のスナップショットや world_state はインスタンス上に残る。
 
 祝日は `bs-scale-up` 内の `jpholiday.is_holiday()` で skip（デモ+配信に適用。月初のプリセット生成が祝日と重なった場合の扱いは運用時に調整）。
 
@@ -397,7 +398,7 @@ Lambda は 1 ペア（`bs-scale-up` / `bs-scale-down`）を 4 スケジュール
 # configs/training.yaml を変更したあと
 aws s3 cp configs/training.yaml s3://bs-app-$ACCOUNT/configs/training.yaml
 # 次回起動時にユーザーデータの aws s3 sync で読み込まれる
-# 即時反映が欲しい場合は ASG を一度 desired=0 → 1 で再起動
+# 即時反映が欲しい場合はインスタンスを stop → start で再起動
 ```
 
 ### 6.3 学習モデル更新
@@ -415,16 +416,18 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意
 ### 6.4 手動停止 / 再開
 
 ```powershell
-# 即停止
-foreach ($n in "bs-streamer-asg", "bs-demo-asg", "bs-learner-asg") {
-    aws autoscaling update-auto-scaling-group --auto-scaling-group-name $n --desired-capacity 0
-}
+# instance_id は deploy/state.json の instance_ids から取る
+$ids = (Get-Content deploy/state.json | ConvertFrom-Json).instance_ids
+$all = @($ids.streamer, $ids.demo, $ids.learner)
+
+# 即停止（stop なので EBS は保持され、次回起動時に状態が残る）
+aws ec2 stop-instances --instance-ids $all
 
 # 即起動
-foreach ($n in "bs-streamer-asg", "bs-demo-asg", "bs-learner-asg") {
-    aws autoscaling update-auto-scaling-group --auto-scaling-group-name $n --desired-capacity 1
-}
+aws ec2 start-instances --instance-ids $all
 ```
+
+> 配信だけ止めたい/動かしたいなら `$ids.demo` と `$ids.streamer` の 2 つだけを対象にする。
 
 ---
 
@@ -449,14 +452,15 @@ aws s3api delete-bucket --bucket bs-app-$ACCOUNT
 
 | 症状 | 確認 | 対処 |
 |---|---|---|
-| Spot で c6a が取れない | `aws ec2 describe-spot-price-history --instance-types c6a.4xlarge --max-results 5` | `common.ps1` の `LearnerFallback` (c6i / c7a / m6a) が自動 fallback。さらに別タイプを追加可 |
+| **Spot 在庫切れで `run-instances` が失敗**（`./60_ec2.ps1`） | `aws ec2 describe-spot-price-history --instance-types c6a.2xlarge --max-results 5` | **ASG 撤去により自動フォールバックは無い（手動対応）**。`common.ps1` の `DemoType` / `LearnerType` を `LearnerFallbackCandidates`（c6i / c7a / m6a 系）のいずれかに書き換えて `./60_ec2.ps1` を再実行する |
+| **Spot 中断でインスタンスが落ちた**（稼働中） | `aws ec2 describe-instances --instance-ids <id> --query "Reservations[].Instances[].State.Name"` | **ASG 撤去により自動再起動は無い（手動対応）**。`aws ec2 start-instances --instance-ids <id>` で再開する。Spot 中断は terminate ではなく stop 相当で扱われる設定のため EBS は残るが、live_server のスナップショットは中断ハンドラが保存できた分までになる |
 | **EC2 で `docker login` が失敗 / timeout** | `aws logs tail /aws/ec2/bs-demo --since 10m`（CW Logs 経由） or SSM Session で `/var/log/userdata.log` | (1) `./10_network.ps1` で endpoint 3 個が available か（§5.0 参照） (2) `vpce` SG の inbound 443 が VPC CIDR から許可されているか (3) `PrivateDnsEnabled=true` か |
 | **EC2 で `docker pull` が `manifest unknown`** | ECR コンソールでイメージタグ確認 | §3.2 の build/push を再実行。`block-stacker/demo:latest` と `block-stacker/learner:latest` が両方 push されているか |
 | **CloudWatch Logs に何も流れない** | EC2 内で `journalctl -u amazon-cloudwatch-agent` | `logs` Interface Endpoint が available か。Endpoint 無いと CW Agent が静かに失敗 |
 | Endpoint の DNS 解決失敗（`ssm-agent` 等が timeout） | EC2 内で `nslookup ecr.ap-northeast-1.amazonaws.com` | `PrivateDnsEnabled` を true にし忘れていると Public エンドポイントを引いてしまい IGW 不在で詰む。`aws ec2 modify-vpc-endpoint --vpc-endpoint-id ... --private-dns-enabled` |
 | Caddy が TLS 取得失敗 | `aws logs tail /aws/ec2/bs-streamer --filter-pattern acme --since 10m` | Port 80 が 0.0.0.0/0 から到達可、A レコードが EIP を指す |
 | WebSocket 接続できない | `curl -v https://bs.example.com/` | Caddy 起動、Demo SG の 8765 inbound、SSM `/bs/demo/private_ip` |
-| Lambda が動かない | `aws logs tail /aws/lambda/bs-scale-up --since 1h` | jpholiday import、ASG_NAMES env var |
+| Lambda が動かない | `aws logs tail /aws/lambda/bs-scale-up --since 1h` | jpholiday import、INSTANCE_IDS env var |
 | state.json と AWS が乖離 | `aws ec2 describe-vpcs --filters Name=tag:Project,Values=block-stacker` 等で確認 | 該当 step スクリプトを再実行（冪等） |
 | S3 同期で permission denied | `aws sts get-caller-identity` で実行ロール確認 | IAM ロールで `bs-app-*` パスに access あるか |
 
@@ -465,7 +469,7 @@ aws s3api delete-bucket --bucket bs-app-$ACCOUNT
 - **PowerShell 5.1 だと動かない**: PowerShell 7 (`pwsh`) を使う。`ConvertFrom-Json -AsHashtable` が必要。
 - **EIP 関連付け失敗**: IAM の `bs-ec2-role` に `ec2:AssociateAddress` がある（`40_iam.ps1` で付与済）。
 - **Lambda jpholiday ImportError**: `lambda/build.ps1` で再ビルド → `70_lambda.ps1` で update-function-code。
-- **Endpoint 作成直後の EC2 起動で ECR pull がタイミング的に失敗**: Interface Endpoint の DNS 伝搬に 1〜2 分かかる。`./10_network.ps1` 直後すぐに `./60_ec2.ps1` を実行する場合、ASG `desired=1` は後で（§5.0 確認後に）行う。
+- **Endpoint 作成直後の EC2 起動で ECR pull がタイミング的に失敗**: Interface Endpoint の DNS 伝搬に 1〜2 分かかる。`./10_network.ps1` 直後すぐに `./60_ec2.ps1` を実行する場合、`start-instances` は後で（§5.0 確認後に）行う。
 - **`vpce` SG の 443 inbound を VPC CIDR で許可していない**: Endpoint への DNS は引けても TLS が握れずタイムアウト。`10_network.ps1` で自動付与しているが、手動で SG を編集してしまうと壊れる。
 
 ---
@@ -480,7 +484,7 @@ deploy/
 ├── 20_s3.ps1               ← S3 バケット + バージョニング + 暗号化 + configs upload
 ├── 40_iam.ps1              ← EC2 / Lambda / Scheduler の IAM ロール
 ├── 50_eip.ps1              ← EIP + Route 53 A レコード
-├── 60_ec2.ps1              ← Launch Templates + ASG x3
+├── 60_ec2.ps1              ← Launch Templates + EC2 x3（作成後 stop）
 ├── 70_lambda.ps1           ← Lambda 2 個 + EventBridge スケジュール
 ├── 80_cloudwatch.ps1       ← Log groups + SNS topic + Alarm
 ├── 90_verify.ps1           ← 手動 scale-up + 接続テスト
@@ -575,7 +579,7 @@ Remove-Item $tmp
 1. **同時接続クライアント数が 15 を超える**
    `src/block_stacker/streaming/server.py` のレビューノートで言及。SFU 化または Redis pub/sub による fan-out が必要になる。
 
-2. **デモ EC2 を複数台 (ASG max_size > 1) で運用する**
+2. **デモ EC2 を複数台で運用する**
    現状 `max_size = 1` 固定。複数化するなら WebSocket セッション情報を Redis に外出しする必要がある。
 
 3. **学習→推論のモデル更新を `live_server` の `--sync-every` より細かく制御したい**
@@ -1149,9 +1153,9 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意
 
 - [ ] `bs-learner-start`, `bs-learner-stop` の Scheduler 確認（aws scheduler list-schedules）
 - [ ] `bs-demo-start`, `bs-demo-stop` の Scheduler 確認
-- [ ] Lambda を手動 invoke して learner だけスケール: `aws lambda invoke --function-name bs-scale-up --payload '{"asg_names":["bs-learner-asg"]}' /tmp/out.json`
-- [ ] Lambda を手動 invoke して demo+streamer だけスケール: `--payload '{"asg_names":["bs-demo-asg","bs-streamer-asg"]}'`
-- [ ] 各 ASG が独立に desired=1/0 になることを確認
+- [ ] Lambda を手動 invoke して learner だけ起動: `aws lambda invoke --function-name bs-scale-up --payload '{"instance_ids":["<learner-id>"]}' /tmp/out.json`
+- [ ] Lambda を手動 invoke して demo+streamer だけ起動: `--payload '{"instance_ids":["<demo-id>","<streamer-id>"]}'`
+- [ ] 各インスタンスが独立に running/stopped になることを確認
 
 ### モデルの準備
 
@@ -1169,7 +1173,7 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意
 ### 運用
 
 - [ ] AWS Budgets 設定 (`docs/aws_deployment.md` §C 参照、$70 想定)
-- [ ] desired=0 に戻して停止確認
+- [ ] `stop-instances` で停止確認
 - [ ] 翌平日に `bs-demo-start` が自動起動するのを確認
 - [ ] 翌月初 1 日に `bs-learner-start`（プリセット生成）が自動起動するのを確認
 
