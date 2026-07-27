@@ -292,7 +292,6 @@ cd C:\Users\iii03\block-stacker\lambda
 > |---|---|---|
 > | `BS_GRADUATION_RATIO` | 目標高さ = 在庫満積み高さ × ratio（`is_success` 判定に使用） | 0.6 |
 > | `BS_GRADUATION_WINDOW` | 指標（success_rate / all_placed_rate）の移動平均幅 | 30 |
-> | `BS_GRADUATION_THRESHOLD` | **未使用**（卒業判定の撤去に伴い残置のみ） | 0.6 |
 >
 > 例: `docker run -e BS_GRADUATION_RATIO=0.7 ... block-stacker/learner`
 

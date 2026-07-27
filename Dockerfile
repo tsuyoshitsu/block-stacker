@@ -68,7 +68,7 @@ FROM base AS learner
 # カリキュラム関連はコンテナ環境変数で上書きできる（優先順位: env var > training.yaml > 既定値）。
 #   BS_GRADUATION_RATIO   目標高さ = 在庫満積み高さ × ratio（既定 0.6）
 #   BS_GRADUATION_WINDOW  指標の移動平均を取る直近エピソード数（既定 30）
-#   ※ BS_GRADUATION_THRESHOLD は**卒業判定の撤去に伴い未使用**（残置のみ）。
+# 名前に graduation が残っているが**卒業判定は無い**。指標の集計方法にしか効かない。
 # 例: docker run -e BS_GRADUATION_RATIO=0.7 ... block-stacker/learner
 
 # 既定は**プリセット生成**（train の既定がそのまま Stage 3 のみ・5,000 steps）。

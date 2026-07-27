@@ -118,7 +118,7 @@
 > （黙って切り詰めると学習量が意図とズレるため）。単一値なら全ステージ一括。
 > `--total-timesteps` は全体の安全上限で、無指定ならステージ予算の合計がそのまま使われる。
 > `BS_GRADUATION_RATIO`（目標高さ係数）と `BS_GRADUATION_WINDOW`（指標の移動平均幅）は引き続き有効。
-> `BS_GRADUATION_THRESHOLD` は卒業判定の撤去に伴い**未使用**。
+> `BS_GRADUATION_THRESHOLD` は卒業判定の撤去に伴い**削除済み**（設定しても効かない）。
 
 学習中：
 - **`fresh/` に残るのは全ステージ走破後のプリセット 1 本だけ**（`sac_final.zip` は廃止）。

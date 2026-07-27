@@ -178,7 +178,7 @@ def _build_training_vec_env(
     episode_cfg = training_cfg["episode"]
     stm_cfg = training_cfg.get("short_term_memory", {})
     stm_length = int(stm_cfg.get("length", 0)) if stm_cfg.get("enabled", False) else 0
-    _, _, grad_ratio = resolve_graduation(
+    _, grad_ratio = resolve_graduation(
         training_cfg.get("curriculum", {}).get("graduation", {})
     )
     factory = make_factory(
@@ -468,7 +468,7 @@ async def main_async(args: argparse.Namespace) -> None:
     inventory = stage_inventory(stage, world_cfg)
     h_high = float(stage["h_high"])
     h_low = float(stage["h_low"])
-    _, _, grad_ratio = resolve_graduation(
+    _, grad_ratio = resolve_graduation(
         training_cfg.get("curriculum", {}).get("graduation", {})
     )
     target_h = inventory_full_stack_height(inventory, world_cfg.shapes) * grad_ratio

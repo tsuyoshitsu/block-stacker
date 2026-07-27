@@ -361,10 +361,11 @@ stages:
     ...
 graduation:
   window: 30                  # 指標（success_rate / all_placed_rate）の移動平均幅
-  threshold: 0.6              # 未使用（卒業判定の撤去に伴い残置のみ）
   ratio: 0.6                  # 目標高さ = 在庫満積み高さ × ratio（is_success の判定に使う）
-demotion_enabled: false       # Stage ダウンなし、一方向のみ進行
 ```
+
+> キー名に `graduation` が残っているが**卒業判定は無い**。ここの 2 値は「指標をどう集計・
+> 判定して記録するか」だけに効く。ステージ降格（demotion）も実装していない。
 
 予算は CLI で上書きできる。`--stage-steps 100000`（全ステージ一括）、
 `--stage-steps 60000,35000,40000`（実行ステージへ順に割当。要素数不一致はエラー）。
@@ -393,8 +394,6 @@ all_placed = 全ブロックが1つの連結成分        # 高さ非依存 → 
 > success_rate が 0 のまま Stage 1→4 が数千ステップで飛ぶ不具合が起きていた。**
 > 高さ条件が無いこと自体が原因なので、再びこれを進行条件に使わないこと。
 > 経緯と実測値は [`docs/design_change_record.md`](design_change_record.md) §1.2.1。
-
-`stable_duration` の継続判定は未実装。
 
 #### エピソードタイムアウト
 
@@ -464,11 +463,7 @@ all_placed = 全ブロックが1つの連結成分        # 高さ非依存 → 
 
 ### 学習エピソード初期状態
 
-**フェーズ 1 (MVP)**: 毎エピソード単純シャッフル (`simple_shuffle`)
-
-```yaml
-episode_reset_strategy: "simple_shuffle"
-```
+毎エピソード単純シャッフル（`_scatter_blocks()` によるランダム配置）。設定キーは持たない。
 
 ---
 
@@ -736,21 +731,15 @@ shuffle:
 ### training.yaml 例（抜粋）
 
 ```yaml
-episode_reset_strategy: "simple_shuffle"
-
 episode:
   max_steps: 30
   max_actions_without_progress: 15
-  timeout_treated_as: "failure"
 
 curriculum:
   # 注: 卒業判定は撤去済み。進行は stages[].steps の固定ステップ制で決まる。
   graduation:
-    rule: "success_rate"
     window: 30        # 指標の移動平均幅。env BS_GRADUATION_WINDOW で上書き可
-    threshold: 0.6    # **未使用**（卒業判定撤去のため残置のみ）
     ratio: 0.6        # 目標高さ=在庫満積み×ratio。env BS_GRADUATION_RATIO で上書き可
-  demotion_enabled: false
   # 目標高さは ratio から動的算出するので stage に target_height は持たない。
   stages:
     - id: 1

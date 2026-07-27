@@ -43,36 +43,30 @@ from stable_baselines3.common.callbacks import BaseCallback
 from block_stacker.config import WorldConfig
 
 # graduation 設定を上書きできるコンテナ環境変数（本番は Docker/ECS の env で渡す）。
+# 卒業判定を撤去した際に threshold（BS_GRADUATION_THRESHOLD）は読み手がいなくなったので削除した。
 GRAD_ENV_WINDOW = "BS_GRADUATION_WINDOW"
-GRAD_ENV_THRESHOLD = "BS_GRADUATION_THRESHOLD"
 GRAD_ENV_RATIO = "BS_GRADUATION_RATIO"
 
 
-def resolve_graduation(graduation_cfg: dict[str, Any]) -> tuple[int, float, float]:
-    """graduation 設定を (window, threshold, ratio) で返す。
+def resolve_graduation(graduation_cfg: dict[str, Any]) -> tuple[int, float]:
+    """graduation 設定を (window, ratio) で返す。
 
     優先順位: コンテナ環境変数 BS_GRADUATION_* > training.yaml の graduation > 既定値。
-    本番（Docker/ECS）では `-e BS_GRADUATION_RATIO=0.7` のように env var で上書きできる。
-      - BS_GRADUATION_WINDOW    : 指標の集計対象エピソード数（既定 30）
-      - BS_GRADUATION_THRESHOLD : **未使用**（卒業判定を撤去したため残置。読み替えのみ）
-      - BS_GRADUATION_RATIO     : 目標高さ ＝ 在庫満積み高さ × ratio（既定 0.6）
+    本番（Docker）では `-e BS_GRADUATION_RATIO=0.7` のように env var で上書きできる。
+      - BS_GRADUATION_WINDOW : 指標の移動平均幅（既定 30）
+      - BS_GRADUATION_RATIO  : 目標高さ ＝ 在庫満積み高さ × ratio（既定 0.6）
 
-    注: 卒業判定は廃止したので threshold は進行を左右しない。window と ratio のみ有効
-    （window = 指標の移動平均幅、ratio = info["is_success"] の判定に使う目標高さ）。
+    名前に "graduation" が残っているが**卒業判定は無い**。ステージ進行は stages[].steps の
+    固定ステップ制で、ここの値は「指標をどう集計・判定して記録するか」だけに効く。
     """
     win_env = os.environ.get(GRAD_ENV_WINDOW)
-    thr_env = os.environ.get(GRAD_ENV_THRESHOLD)
     ratio_env = os.environ.get(GRAD_ENV_RATIO)
     window = int(win_env) if win_env is not None else int(graduation_cfg.get("window", 30))
-    threshold = (
-        float(thr_env) if thr_env is not None
-        else float(graduation_cfg.get("threshold", 0.6))
-    )
     ratio = (
         float(ratio_env) if ratio_env is not None
         else float(graduation_cfg.get("ratio", 0.6))
     )
-    return window, threshold, ratio
+    return window, ratio
 
 
 def stage_inventory(stage: dict[str, Any], world_cfg: WorldConfig) -> dict[str, int]:

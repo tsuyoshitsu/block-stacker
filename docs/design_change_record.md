@@ -613,6 +613,27 @@ ECS クラスタ + タスク定義 + RunTask という**第二のデプロイ経
 
 ---
 
+## 6.6 デッドコード・未使用設定の撤去
+
+卒業判定と定期 checkpoint を撤去した際に、**読み手のいない設定キーと関数**が残っていた。
+「設定できるように見えて効かない」ものは実際に誤設定を招くので削除した。
+
+| 撤去物 | 状態 |
+|---|---|
+| `graduation.threshold` / `BS_GRADUATION_THRESHOLD` | `resolve_graduation` が返していたが**全呼び出し元が捨てていた**。戻り値を `(window, ratio)` の 2-tuple に変更 |
+| `graduation.rule: "success_rate"` | 参照ゼロ。卒業ルールの宣言だったが判定自体が無い |
+| `curriculum.demotion_enabled` | 参照ゼロ。降格は実装されていない（コメントに降格）|
+| `curriculum.stages[].stable_duration` | 参照ゼロ。継続判定は未実装（5 ステージ分）|
+| `episode_reset_strategy: "simple_shuffle"` | 参照ゼロ。実際の配置は `_scatter_blocks()` 固定 |
+| `episode.timeout_treated_as: "failure"` | 参照ゼロ。分類はコード側で固定 |
+| `list_checkpoints_sorted()` | 本番呼び出し元ゼロ（テストのみが生かしていた）。同じ昇順ソートは各 `tools/*.ps1` が PowerShell 側で実装している |
+
+> `graduation` という**キー名自体は残している**。`window`（指標の移動平均幅）と
+> `ratio`（目標高さ係数）は現役で、リネームすると env var (`BS_GRADUATION_*`) の
+> 互換も切れるため。名前に反して**卒業判定は無い**点はコード・設定の両方に注記した。
+
+---
+
 ## 7. 開発環境
 
 ### 7.1 `uv sync 厳禁` の適用範囲

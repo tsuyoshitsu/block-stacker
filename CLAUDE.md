@@ -100,7 +100,7 @@ PyBullet 物理シムの結果を WebSocket で Godot クライアントに配�
     これが無いと拾えるブロックが無いまま空振りが続き、timeout_penalty まで課されて
     **課題を完遂したエピソードが failure として記録される**。
   - `BS_GRADUATION_WINDOW`（指標の移動平均幅）と `BS_GRADUATION_RATIO`（目標高さ係数）は有効。
-    `BS_GRADUATION_THRESHOLD` は**未使用**（卒業判定撤去のため残置のみ）。
+    `BS_GRADUATION_THRESHOLD` / `graduation.threshold` は**削除済み**（読み手がいなかった）。
   - 指標は TensorBoard の `curriculum/{success_rate, all_placed_rate, all_placed_total,
     all_placed_height, tower_height_mean}` と `rollout/ep_rew_mean`。
     **`all_placed` は必ず `all_placed_height` と併読する**（高さ非依存なので単体では

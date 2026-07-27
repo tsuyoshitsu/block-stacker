@@ -1,24 +1,18 @@
 # Training configuration: SAC + 重みつき記憶バッファ + 短期記憶。
 
-episode_reset_strategy: "simple_shuffle"
-
 episode:
   max_steps: 30
   # 子供メタファー: 進歩なし手数の上限。緩めの 15 で「探索を萎縮させない」。
   max_actions_without_progress: 15
-  timeout_treated_as: "failure"
 
 curriculum:
   # 注: 卒業判定は廃止済み（進行は stages[].steps の固定ステップ制）。ここに残るのは指標用の設定。
   graduation:
-    rule: "success_rate"
     window: 30                # 指標（success_rate / all_placed_rate）の移動平均幅
-    threshold: 0.6            # 未使用。卒業判定の撤去に伴い残置のみ
     # 目標高さ = 在庫を全部縦積みした理論高さ × ratio（在庫が増えれば目標も比例して上がる）。
     # 各ステージの静的 target_height は使わず、この ratio から動的に決まる。
     ratio: 0.6
-  demotion_enabled: false
-  # 形状を段階的に追加していくカリキュラム。
+  # 形状を段階的に追加していくカリキュラム。ステージ降格（demotion）は実装していない。
   # 順序の根拠: 円柱は転がるので最も難しい → 4 形状中最後に投入。
   #            三角柱は平面が多く安定面が複数あるので、cuboid の次に投入。
   #            難しさは形状（斜面・曲面）が支配的で、目標高さの大小では測れない。
@@ -49,7 +43,6 @@ curriculum:
       name: "Stage 1: cube だけ・低い目標"
       shapes_allowed: [cube]
       inventory: {cube: 8}
-      stable_duration: 2.0
       h_high: 0.075
       h_low: 0.025
       # 掴む・運ぶ・載せるをゼロから獲得する最大の山。以降の全ステージがこの方策を
@@ -59,7 +52,6 @@ curriculum:
       name: "Stage 2: cube だけ・高い目標"
       shapes_allowed: [cube]
       inventory: {cube: 15}
-      stable_duration: 2.0
       h_high: 0.20
       h_low: 0.05
       # 同じ cube のままで、増えるのは個数と目標高さ（約2倍）だけ。転移が最も効くので最小。
@@ -68,7 +60,6 @@ curriculum:
       name: "Stage 3: cube + cuboid"
       shapes_allowed: [cube, cuboid]
       inventory: {cube: 8, cuboid: 7}
-      stable_duration: 2.0
       h_high: 0.25
       h_low: 0.08
       # **プリセット生成の標準ステップ数**（train を引数なしで実行するとこの値になる）。
@@ -81,7 +72,6 @@ curriculum:
       name: "Stage 4: 三角柱を追加（cube + cuboid + triangular_prism）"
       shapes_allowed: [cube, cuboid, triangular_prism]
       inventory: {cube: 5, cuboid: 5, triangular_prism: 5}
-      stable_duration: 2.0
       h_high: 0.28
       h_low: 0.10
       # 斜面を持つ形状。実測で success_rate が 0.43（Stage 3）から 0.00 へ退行し、
@@ -92,7 +82,6 @@ curriculum:
       name: "Stage 5: 円柱を追加（全 4 形状、最難）"
       shapes_allowed: [cube, cuboid, triangular_prism, cylinder]
       inventory: {cube: 4, cuboid: 4, triangular_prism: 4, cylinder: 3}
-      stable_duration: 2.0
       h_high: 0.32
       h_low: 0.12
       # 転がる形状＝最難。既存の方策が通用しない新規スキルなので Stage 1 と並んで多く取る。

@@ -439,7 +439,7 @@ async def main_async(args: argparse.Namespace) -> None:
     inventory = stage_inventory(stage, world_cfg)
     h_high = args.h_high if args.h_high is not None else float(stage["h_high"])
     h_low = args.h_low if args.h_low is not None else float(stage["h_low"])
-    _, _, grad_ratio = resolve_graduation(training_cfg.get("curriculum", {}).get("graduation", {}))
+    _, grad_ratio = resolve_graduation(training_cfg.get("curriculum", {}).get("graduation", {}))
     target_h = inventory_full_stack_height(inventory, world_cfg.shapes) * grad_ratio
     LOG.info("demo stage: id=%s '%s' inventory=%s target=%.3f h_high=%.3f h_low=%.3f",
              stage.get("id"), stage.get("name", ""), inventory,

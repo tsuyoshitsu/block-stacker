@@ -406,8 +406,8 @@ def main() -> None:
     all_stages = curr_cfg["stages"]
     grad_cfg = curr_cfg.get("graduation", {})
     # 環境変数 BS_GRADUATION_* > training.yaml > 既定値 で解決。
-    # threshold は卒業判定の撤去に伴い未使用（window=指標の移動平均幅, ratio=目標高さ係数）。
-    grad_window, _grad_threshold_unused, grad_ratio = resolve_graduation(grad_cfg)
+    # 卒業判定は無い。window=指標の移動平均幅, ratio=目標高さ係数。
+    grad_window, grad_ratio = resolve_graduation(grad_cfg)
 
     n_envs = args.n_envs or sac_cfg.get("n_envs", 1)
     stm_length = int(stm_cfg.get("length", 0)) if stm_cfg.get("enabled", False) else 0

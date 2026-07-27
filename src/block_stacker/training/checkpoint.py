@@ -66,25 +66,3 @@ def find_latest_checkpoint(output_dir: Path) -> Path | None:
             if best is None or (ts, steps) > (best[0], best[1]):
                 best = (ts, steps, p)
     return best[2] if best is not None else None
-
-
-def list_checkpoints_sorted(
-    output_dir: Path, subdir: str
-) -> list[tuple[str, int, Path]]:
-    """Return (run_ts_str, steps, path) tuples from subdir, sorted ascending.
-
-    Sort order: (run_ts_str, steps) ascending — oldest run first, lowest step first.
-    Old-format files ('00000000-000000') sort before any new-format file.
-    """
-    results: list[tuple[str, int, Path]] = []
-    d = output_dir / subdir
-    if not d.exists():
-        return results
-    for p in d.glob("sac_*.zip"):
-        parsed = _parse_checkpoint_name(p.name)
-        if parsed is None:
-            continue
-        ts, steps = parsed
-        results.append((ts, steps, p))
-    results.sort()
-    return results
