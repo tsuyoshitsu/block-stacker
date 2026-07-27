@@ -997,10 +997,18 @@ stop は terminate と違い EBS を保持するので、スナップショッ�
 
 ### 8.8 ECR / Docker
 
-| Image | Dockerfile | ベース | 用途 |
+**`Dockerfile` 1 本の multi-stage** で 2 イメージを作る。共通の `base` ステージに依存とアプリコードを置き、
+`live` / `learner` はそこから CMD（と live の `EXPOSE 8765`）だけを差し替える。
+
+| Image | ビルド | ベース | 用途 |
 |------|-----------|--------|------|
-| `block-stacker/live` | `Dockerfile` | python:3.11-slim | live EC2 (`serving.live_server`) |
-| `block-stacker/learner` | `Dockerfile.learner` | python:3.12-slim | 学習 EC2 (`training.train`) |
+| `block-stacker/live` | `docker build -t block-stacker/live .`（最終ステージ = live） | python:3.12-slim | live EC2 (`serving.live_server`) |
+| `block-stacker/learner` | `docker build --target learner -t block-stacker/learner .` | python:3.12-slim | 学習 EC2 (`training.train`) |
+
+> **依存を 1 箇所にまとめた理由**: live_server は「配信しながらバックグラウンドで SAC を学習する」ので、
+> 推論だけでなく stable-baselines3 / torch / tensorboard を learner と丸ごと同じだけ必要とする。
+> 別 Dockerfile に分けると依存リストが 2 本になり drift するため、`base` ステージを共有させた。
+> （旧 `Dockerfile.learner` は本ファイルの `learner` ターゲットに統合済み）
 
 両イメージとも **CPU torch wheel** を使用（GPU 不要）。配信 EC2 は Caddy をネイティブ実行（コンテナ化なし）。
 

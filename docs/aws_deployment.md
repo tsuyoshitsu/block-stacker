@@ -180,13 +180,13 @@ $REGISTRY = "$ACCOUNT.dkr.ecr.$REGION.amazonaws.com"
 
 aws ecr get-login-password --region $REGION | docker login --username AWS --password-stdin $REGISTRY
 
-# live 用 (CPU)
+# live 用 (CPU)。live は Dockerfile の最終ステージなので --target 省略可。
 docker build -t block-stacker/live:latest .
 docker tag block-stacker/live:latest "$REGISTRY/block-stacker/live:latest"
 docker push "$REGISTRY/block-stacker/live:latest"
 
-# 学習用 (CPU torch, AMD EPYC)
-docker build -f Dockerfile.learner -t block-stacker/learner:latest .
+# 学習用 (CPU torch, AMD EPYC)。同じ Dockerfile の learner ターゲット。
+docker build --target learner -t block-stacker/learner:latest .
 docker tag block-stacker/learner:latest "$REGISTRY/block-stacker/learner:latest"
 docker push "$REGISTRY/block-stacker/learner:latest"
 ```
@@ -270,7 +270,7 @@ cd C:\Users\iii03\block-stacker\lambda
 **学習 EC2 (`learner.sh`)** も同様の流れで、`docker run ... training.train` が走り、全ステージ走破後にプリセット 1 本を S3 に書き戻します。
 
 > **オートカリキュラム（既定で有効）**: カリキュラムは `training.train` の**デフォルト ON**
-> （`Dockerfile.learner` の `CMD` でも明示）。Stage 1→4 を**固定ステップ制**で進行する
+> （`Dockerfile` の `learner` ターゲットの `CMD` でも明示）。Stage 1→4 を**固定ステップ制**で進行する
 > （`--target-stage 4` 既定＝走るステージの上限。`--target-stage 5` で Stage 5 まで）。
 > **卒業判定は無い**ので、各ステージは `stages[].steps` の予算どおり走って次へ進む。
 > **train の既定は Stage 3 のみ 5,000 steps（プリセット生成）**。フルカリキュラム
@@ -1139,7 +1139,7 @@ live EC2 の本番起動には `live_server.py` を使用します（**配信し
 ### イメージとパッケージのビルド
 
 - [ ] ECR 2 リポジトリ作成 (`block-stacker/live`, `block-stacker/learner`)
-- [ ] Docker イメージビルド + push (`Dockerfile`, `Dockerfile.learner`)
+- [ ] Docker イメージビルド + push (`Dockerfile` の live / learner 2 ターゲット)
 - [ ] `lambda/build.ps1` で zip ビルド済 (`lambda_scheduler.zip`)
 
 ### インフラデプロイ

@@ -515,6 +515,25 @@ live_server のスナップショット（`replay_buffer.pkl` / `resume_state.js
 | `configs/training.yaml` の `demotion_enabled` | ステージ降格フラグ。文字列が偶然一致しているだけ |
 | `infra-terraform/` 一式 | 凍結された ASG 版参照実装（§5.5）。現行経路ではないので追従させない |
 
+### 5.7 `Dockerfile.learner` 単体 → `Dockerfile` の multi-stage（live / learner）
+
+live 用イメージの `Dockerfile` は**設計書に名前だけあって実体が無く**、`block-stacker/live` を
+ビルドできない状態だった。実体を作るにあたり、learner と別ファイルにするか共通化するかを検討し、
+**1 本の `Dockerfile` に `base` / `learner` / `live` の 3 ステージ**を置く形に統合した。
+
+| | 旧 | 現行 |
+|---|---|---|
+| live | （実体なし） | `docker build -t block-stacker/live .`（最終ステージ） |
+| learner | `docker build -f Dockerfile.learner ...` | `docker build --target learner ...` |
+| 依存リスト | Dockerfile.learner のみ | `base` ステージに 1 本化 |
+
+**別ファイルにしなかった理由**: live_server は「配信しながらバックグラウンドで SAC を学習する」ため、
+推論用の依存だけでは足りず stable-baselines3 / torch / tensorboard を learner と**丸ごと同じだけ**必要とする。
+2 ファイルに分けると同一の依存リストが 2 本になって必ず drift する。共通ベースを別イメージとして
+ECR に push する案（3 リポジトリ化）も考えたが、ビルド順の依存が増えるだけで利点が無いので採らなかった。
+
+ベースイメージも `python:3.11-slim`（設計書の記載）→ `python:3.12-slim` に揃えた（ローカル `.venv` と同じ）。
+
 ---
 
 ## 6. パッケージ名・パス
