@@ -1,4 +1,4 @@
-"""Tiny WebSocket client that connects to the demo server and prints
+r"""Tiny WebSocket client that connects to the demo server and prints
 a running summary of received messages.
 
 Run (after starting demo_server):

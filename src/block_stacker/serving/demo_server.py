@@ -1,4 +1,4 @@
-"""Demo server (physics-only): physics + sleep/wake tracking + WebSocket streaming.
+r"""Demo server (physics-only): physics + sleep/wake tracking + WebSocket streaming.
 
 No AI. Spawns blocks per `world.yaml`, runs PyBullet in real time,
 periodically perturbs random blocks (so awake/sleep transitions actually

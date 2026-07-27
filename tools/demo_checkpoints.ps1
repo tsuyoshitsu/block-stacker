@@ -47,7 +47,8 @@ function Get-Checkpoints {
     if (-not (Test-Path $Dir)) {
         Write-Host "checkpoint ディレクトリが見つかりません: $Dir" -ForegroundColor Red
         Write-Host "先に学習を回してください:" -ForegroundColor Yellow
-        Write-Host "  .venv\Scripts\python.exe -m block_stacker.training.train --n-envs 4 --total-timesteps 2000000 --target-stage 4" -ForegroundColor Yellow
+        Write-Host "  .venv\Scripts\python.exe -m block_stacker.training.train                              # プリセット生成 (Stage 3 のみ・5,000 steps)" -ForegroundColor Yellow
+    Write-Host "  .venv\Scripts\python.exe -m block_stacker.training.train --start-stage 1 --target-stage 4   # フルカリキュラム" -ForegroundColor Yellow
         exit 1
     }
     Get-ChildItem $Dir -Filter "sac_*.zip" |
