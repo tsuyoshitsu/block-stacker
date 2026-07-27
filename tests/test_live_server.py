@@ -288,13 +288,15 @@ class TestArgParser:
         args = self._parse()
         assert args.duration == 28800.0
 
-    def test_default_n_envs(self) -> None:
+    def test_default_n_envs_matches_training_config(self) -> None:
+        # configs/training.yaml の sac.n_envs と一致していること。ズレると
+        # set_env() が AssertionError を投げ、学習スレッドだけが落ちる（配信は生き残る）。
         args = self._parse()
-        assert args.n_envs == 4
+        assert args.n_envs == 1
 
     def test_default_sync_every(self) -> None:
         args = self._parse()
-        assert args.sync_every == 500
+        assert args.sync_every == 50
 
     def test_default_no_resume_is_false(self) -> None:
         args = self._parse()
@@ -315,3 +317,19 @@ class TestArgParser:
     def test_model_default_is_none(self) -> None:
         args = self._parse()
         assert args.model is None
+
+    def test_default_n_envs_equals_config_n_envs(self) -> None:
+        """live_server の --n-envs 既定が configs/training.yaml の sac.n_envs と一致すること。
+
+        回帰: 両者がズレていると、既定のまま起動しただけで SAC の set_env() が
+        AssertionError を投げ、**学習スレッドだけが落ちて配信は生き残る**。
+        「配信は動いているのに賢くならない」状態になり気づきにくい。
+        config だけ変更したときにこのテストで検知する。
+        """
+        import yaml
+
+        from block_stacker.config import default_configs_dir
+
+        with (default_configs_dir() / "training.yaml").open("r", encoding="utf-8") as f:
+            cfg = yaml.safe_load(f)
+        assert self._parse().n_envs == int(cfg["sac"]["n_envs"])

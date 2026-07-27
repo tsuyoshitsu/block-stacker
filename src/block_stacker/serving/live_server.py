@@ -571,10 +571,15 @@ def _build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--duration", type=float, default=28800.0,
                         help="配信秒数 (default: 28800 = 8h)。0 = 無制限")
     # --- training ---
-    parser.add_argument("--n-envs", type=int, default=4,
-                        help="バックグラウンド学習の並列環境数 (0 = 配信のみ)")
-    parser.add_argument("--sync-every", type=int, default=500,
-                        help="学習→配信モデルへの重み同期間隔（学習ステップ単位）")
+    parser.add_argument("--n-envs", type=int, default=1,
+                        help="バックグラウンド学習の並列環境数 (0 = 配信のみ)。"
+                             "**スナップショットを作った時の n_envs と一致必須**"
+                             "（不一致だと SAC の set_env() が AssertionError を投げ、"
+                             "学習スレッドだけが落ちて配信は生き残る）。"
+                             "configs/training.yaml の sac.n_envs（既定 1）に合わせてある")
+    parser.add_argument("--sync-every", type=int, default=50,
+                        help="学習→配信モデルへの重み同期間隔（学習ステップ単位）。"
+                             "小さいほど学習成果が配信へこまめに反映される")
     # --- resume ---
     parser.add_argument("--no-resume", action="store_true", default=False,
                         help="スナップショットを無視して新規学習（初回起動専用）")

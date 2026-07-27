@@ -93,17 +93,15 @@
 # --duration 0 なら無制限
 ```
 
-> ⚠️ **推奨実行値は `--n-envs 1 --sync-every 50`。コード既定（`--n-envs 4` / `--sync-every 500`）
-> とはズレているので、必ず明示すること。**
+> **既定値は運用値に揃えてある**（`--n-envs 1` / `--sync-every 50`）ので、通常は省略してよい。
+> 上のコマンドは明示した形。
 >
-> - **`--n-envs` はスナップショットを作った時の n_envs と一致必須**。学習は `set_env()` で env を
->   差し替えるが、SAC はモデルの n_envs と env 数が違うと `AssertionError` を投げる。
->   このとき**学習スレッドだけが落ちて配信は生き残る**ため、
->   「配信は動いているのに賢くならない」状態に気づきにくい。
->   `configs/training.yaml` の `sac.n_envs`（既定 **1**）で学習したプリセットなら `--n-envs 1`。
->   ログに `[train] background training thread crashed` が出ていないか必ず確認する。
-> - **`--sync-every 500`（既定）は反映が粗い**。50 にすると学習成果が 10 倍こまめに表示へ乗る。
-> - コード既定値は未変更（このズレは docs 側で吸収している）。
+> ⚠️ **`--n-envs` を変えるときは、スナップショットを作った時の n_envs と一致させること。**
+> 学習は `set_env()` で env を差し替えるが、SAC はモデルの n_envs と env 数が違うと
+> `AssertionError` を投げる。このとき**学習スレッドだけが落ちて配信は生き残る**ため、
+> 「配信は動いているのに賢くならない」状態になり気づきにくい。
+> ログに `[train] background training thread crashed` が出ていないか確認する。
+> 既定 1 は `configs/training.yaml` の `sac.n_envs` と一致（テストで担保）。
 
 `--snapshot-dir` 配下の `fresh/` または `played/` にある最大ステップ checkpoint を
 自動選択します（`find_latest_checkpoint` の `(run_ts, steps)` 降順）。
