@@ -510,7 +510,7 @@ live_server のスナップショット（`replay_buffer.pkl` / `resume_state.js
 | 対象 | 何か |
 |---|---|
 | `src/block_stacker/serving/demo_server.py` | AI なしの物理のみデモサーバ。クライアント開発用に現役 |
-| `tools/demo_checkpoints.ps1` | ai_server による checkpoint 手動再生（開発用） |
+| `tools/replay_checkpoints.ps1` | ai_server による checkpoint 再生（開発用。旧 demo_checkpoints.ps1）|
 | `docs/local_demo.md` | ローカル試運転手順 |
 | `configs/training.yaml` の `demotion_enabled` | ステージ降格フラグ。文字列が偶然一致しているだけ |
 | `infra-terraform/` 一式 | 凍結された ASG 版参照実装（§5.5）。現行経路ではないので追従させない |
@@ -631,6 +631,55 @@ ECS クラスタ + タスク定義 + RunTask という**第二のデプロイ経
 > `graduation` という**キー名自体は残している**。`window`（指標の移動平均幅）と
 > `ratio`（目標高さ係数）は現役で、リネームすると env var (`BS_GRADUATION_*`) の
 > 互換も切れるため。名前に反して**卒業判定は無い**点はコード・設定の両方に注記した。
+
+---
+
+## 6.7 tools/ の整理: 3 本 → 1 本
+
+`tools/` にあった 3 本は、いずれも「定期 checkpoint で成長系列ができる」時代の設計だった。
+現行では checkpoint の作られ方が変わったので、役割を洗い直して統合した。
+
+| 旧 | 現行 |
+|---|---|
+| `advance_day.ps1`（日次で fresh→played をローテーションし ai_server で配信）| **撤去**。配信は `live_server`（配信＋学習融合）に置き換わり、本番もローカルもそちらが主役 |
+| `demo_checkpoints.ps1`（対話で 1 本選んで再生）| `replay_checkpoints.ps1` に統合（既定モード）|
+| `local_loop.ps1`（fresh/ を昇順に 1 巡再生）| `replay_checkpoints.ps1 -All` に統合 |
+
+統合版は `local_loop.ps1` のプロセス管理（ai_server に `--duration` を渡して自己終了させ
+`WaitForExit` で待つ・`try/finally` で後片付け）を土台に、`demo_checkpoints.ps1` の UI
+（一覧表示・対話選択・`-LaunchGodot`）を載せている。名前を第三の名前にしたのは、
+`local_loop` に実際にはループが無く（1 巡で終了）、`demo_` 接頭辞は
+「AI なしの物理デモ」(`demo_server.py`) と紛らわしいため。
+
+> **`fresh/` の checkpoint は今も増える**。定期 checkpoint は撤去したが、`live_server` が
+> **セッション終了ごとに 1 本** `fresh/` へ追加する（`played/` へは移さない）。
+> 平日運用なら月 20 本前後の成長系列が溜まるので、通し再生の用途自体は消えていない。
+> これを見落として「1 run = 1 本だから再生ツールは不要」と判断しないこと。
+
+### 6.7.1 `_self_stop_instance()` の撤去
+
+live_server の終了処理から呼ばれていたが、ログを出すだけのスタブだった。
+EC2 の start/stop は **EventBridge Scheduler → Lambda**（`lambda/handler.py`）の責務に
+確定しているので、プロセス側に自己停止の口を残す理由がない。関数ごと削除し、
+`finally` には「停止は Lambda の責務」と明記したコメントを置いた。
+
+### 6.7.2 `training/eval.py` は残す（ただし評価する世界が陳腐化していた）
+
+**残す理由**: 配信スタック（WebSocket + Godot）を立てずにモデルを走らせ、1 手ごとの報酬・
+`event_type`・タワー高さとエピソード合計を**数値で**出す唯一の経路。`ai_server` /
+`live_server` / `replay_checkpoints.ps1` はいずれも「目で見る」ためのもので数値を出さない。
+
+**見つかった陳腐化**: 評価する世界を直書きしていて、config を変えても追従していなかった。
+
+| | 旧（直書き）| config の実際の値 |
+|---|---|---|
+| inventory | `{"cube": 5}` | Stage 1 は `{"cube": 8}` |
+| `h_high` / `h_low` | `0.10` / `0.03` | Stage 1 は `0.075` / `0.025` |
+| `max_steps` | `10` | `episode.max_steps` は `30` |
+
+つまり**どのステージとも一致しない世界**で評価していた。`ai_server` と同じ解決
+（`training.yaml` の `curriculum.stages` から引き、既定は最終ステージ、`--stage` で上書き）
+に揃えて、配信で見える世界と数値評価の世界がズレないようにした。
 
 ---
 

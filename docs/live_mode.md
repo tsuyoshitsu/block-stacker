@@ -193,15 +193,19 @@ live-train スレッド (n_envs=1):
 
 ### 正常終了（`--duration` 経過）
 
-1. asyncio タスク（physics / ai_driver / serve）を `asyncio.wait_for` でキャンセル。
+1. asyncio タスク（physics / ai_driver / serve）をキャンセル。
 2. `stop_event.set()` → `LiveCallback._on_step()` が `False` を返し `SAC.learn()` を終了。
 3. `_save_live_snapshot()` が `fresh/` + `replay_buffer.pkl` + `resume_state.json` を保存。
-4. `_self_stop_instance()` が呼ばれる（EC2 デプロイ時はここに self-stop 実装を差し込む）。
+4. `world.disconnect()` してプロセス終了。
+
+> **プロセスは自分でインスタンスを止めない。** EC2 の start/stop は EventBridge Scheduler →
+> Lambda（`lambda/handler.py`）の責務です。プロセス終了後、systemd の `bs-flush.service` が
+> snapshot を S3 へ退避します。
 
 ### Ctrl-C / SIGTERM 割り込み
 
-`KeyboardInterrupt` を `main()` がキャッチして正常終了パスを経由します。
-`finally` ブロックでスナップショットが保存されるため、強制終了以外はデータ損失なし。
+`install_shutdown_handlers()` が SIGTERM / SIGINT を上と同じシャットダウンパスに繋ぐので、
+`docker stop` でも Ctrl-C でもスナップショットが保存されます。SIGKILL のみデータ損失。
 
 ### 強制終了 / Spot 中断
 

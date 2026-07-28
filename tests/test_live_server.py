@@ -16,7 +16,6 @@ from block_stacker.serving.live_server import (
     _build_parser,
     _resolve_model,
     _save_live_snapshot,
-    _self_stop_instance,
 )
 
 
@@ -233,7 +232,7 @@ class TestApplyLiveResume:
         assert model.replay_buffer.global_step == 99
 
 
-# ----------------------------------------------------------------- _save_live_snapshot / _self_stop
+# ----------------------------------------------------------------- _save_live_snapshot
 
 
 class TestSaveLiveSnapshot:
@@ -271,9 +270,6 @@ class TestSaveLiveSnapshot:
         assert data["num_timesteps"] == 500
         assert data["next_stage_id"] == 5
         assert "timestamp" in data
-
-    def test_self_stop_is_callable(self) -> None:
-        _self_stop_instance("test-reason")  # just verifies it doesn't raise
 
 
 # ----------------------------------------------------------------- Step E: argparse smoke

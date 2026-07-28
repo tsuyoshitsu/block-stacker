@@ -177,8 +177,8 @@ Logging to output\training\tb\SAC_1                     ← グラフ用デー�
 - checkpoint 名 `sac_<YYYYMMDD-HHMMSS>_<手数>_steps.zip` の `<YYYYMMDD-HHMMSS>` は同一 run の
   checkpoint すべてで共通（`run_ts`）。`<手数>` はカリキュラムを通して連続した総タイムステップ（`--n-envs 6` だと
   端数が生じ `49998` のような数になる）。
-  ソートキーは `(run_ts, steps)` 昇順＝学習順。[`tools/demo_checkpoints.ps1`](../tools/demo_checkpoints.ps1) /
-  `local_loop.ps1` がこの順で `fresh/` の checkpoint を再生する（再生環境は常に最終ステージ）。
+  ソートキーは `(run_ts, steps)` 昇順＝学習順。[`tools/replay_checkpoints.ps1`](../tools/replay_checkpoints.ps1)
+  がこの順で `fresh/` の checkpoint を再生する（再生環境は常に最終ステージ）。
 - 保存されるのは全ステージ走破後のプリセット 1 本のみ（定期 checkpoint は撤去済み）。
 
 ---

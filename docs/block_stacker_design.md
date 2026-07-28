@@ -1094,7 +1094,7 @@ stop は terminate と違い EBS を保持するので、スナップショッ�
 | AWS | 監視 | CloudWatch Logs/Metrics/Alarms |
 | AWS | **月額コスト（暫定）** | **約 ¥8,900 (約 $59)**（推奨 c6a.2xlarge 前提。§8.10） |
 | 設定 | ファイル | world / physics / training / reward の 4 YAML |
-| ローカル | 試運転 | tools/demo_checkpoints.ps1 で checkpoint 比較 |
+| ローカル | 試運転 | tools/replay_checkpoints.ps1 で checkpoint 比較、training.eval で数値評価 |
 
 ---
 

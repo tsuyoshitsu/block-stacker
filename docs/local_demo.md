@@ -161,26 +161,29 @@
 .venv\Scripts\python.exe -m block_stacker.serving.ai_server --host 127.0.0.1
 ```
 
-複数の run のモデルが溜まっている場合は、[`tools/demo_checkpoints.ps1`](../tools/demo_checkpoints.ps1)
+モデルが複数溜まっている場合は、[`tools/replay_checkpoints.ps1`](../tools/replay_checkpoints.ps1)
 で一覧から選んで再生できる。
 
 ```powershell
-tools\demo_checkpoints.ps1
+tools\replay_checkpoints.ps1
 ```
 
-出力例（学習を 2 回走らせて run が 2 つある場合）：
+出力例：
 
 ```
-発見された checkpoint (2 件):
+=== replay_checkpoints ===
+  dir    : output\training\fresh
+  found  : 2 checkpoints（古い順）
   0: 20260713-100000 / 180000 steps  (sac_20260713-100000_180000_steps.zip)
   1: 20260714-093000 / 180000 steps  (sac_20260714-093000_180000_steps.zip)
 
-番号を入力 (例: 0)、'all' で全部、'q' で終了
+番号を入力 (例: 5)、'all' で全部、'q' で終了
 > 1
 ```
 
-> **1 回の学習で出るモデルは 1 本**（全ステージ走破後のプリセット）。したがってこの一覧に
-> 複数並ぶのは「**複数回学習を走らせた**」場合であり、1 run 内の途中経過ではない。
+> **`fresh/` にモデルが増えるのは 2 経路**。`train` は 1 run につきプリセット 1 本
+> （次の run 開始時に `played/` へ退避）。`live_server` は**セッション終了ごとに 1 本追加**し、
+> `played/` へは移さない。したがって平日運用していれば `fresh/` に月 20 本前後の成長系列が溜まる。
 > `run_ts`（先頭の日時）が run の識別子で、同じ run のモデルは同じ値を持つ。
 >
 > **デモは常に最終ステージ（全形状）でモデルを動かす**（`ai_server` 既定）。特定ステージの
@@ -191,7 +194,8 @@ tools\demo_checkpoints.ps1
 > （body_id は保持するので配信は途切れない）。学習側の env も同じ挙動をする。
 
 `played/` に退避済みのモデルを再生したいときは
-`demo_checkpoints.ps1 -CheckpointsDir output\training\played` を使う。
+`replay_checkpoints.ps1 -Dir output\training\played` を使う。
+全件を通しで見るなら `replay_checkpoints.ps1 -All -Seconds 30`。
 
 → Godot 画面で AI の動きを観察できる。
 
@@ -267,39 +271,54 @@ Stage 3 以上の範囲で学習したモデルで確認すること。
 
 ## ヘルパースクリプトの引数
 
-### `tools\demo_checkpoints.ps1`（モデルを選んで再生）
+### `tools\replay_checkpoints.ps1`（checkpoint を古い順に再生）
 
 | パラメータ | デフォルト | 説明 |
 |----------|---------|------|
-| `-CheckpointsDir` | `output\training\fresh` | モデルのディレクトリ（fresh/ または played/ を指定） |
-| `-Seconds` | 60 | 各モデルの再生時間（秒）|
-| `-Mode` | `interactive` | `interactive` (一つ選ぶ) または `auto` (見つかった順に全部) |
+| `-Dir` | `output\training\fresh` | モデルのディレクトリ（`played/` も指定可）|
+| `-Seconds` | `60` | 1 モデルあたりの再生秒数 |
+| `-All` | (未指定なら対話) | このフラグで全件を古い順に 1 巡して終了 |
 | `-Python` | `.venv\Scripts\python.exe` | Python 実行パス |
+| `-AiHost` | `127.0.0.1` | ai_server の listen ホスト |
+| `-AiPort` | `8765` | ai_server の listen ポート |
 | `-Godot` | `D:\Godot_...\Godot_...exe` | Godot 実行パス |
 | `-LaunchGodot` | (未指定なら手動) | このフラグで Godot を自動起動 |
 
-### `tools\local_loop.ps1`（`fresh/` を1巡再生して終了）
+> 旧 `demo_checkpoints.ps1`（対話選択）と `local_loop.ps1`（1 巡再生）はこれに統合した。
+> 日次ローテーション配信の `advance_day.ps1` は `live_server` に置き換わったため撤去
+> （経緯は [`docs/design_change_record.md`](design_change_record.md)）。
 
-| パラメータ | デフォルト | 説明 |
+### `training.eval`（モデルの数値評価）
+
+配信スタックを立てずにモデルの中身を数字で見たいときに使う。1 手ごとの報酬・`event_type`・
+タワー高さと、エピソード合計を標準出力に出す。WebSocket も Godot も使わない。
+
+```powershell
+.venv\Scripts\python.exe -m block_stacker.training.eval                # 最新モデル・最終ステージ
+.venv\Scripts\python.exe -m block_stacker.training.eval --stage 1      # Stage 1 の世界で評価
+.venv\Scripts\python.exe -m block_stacker.training.eval --episodes 5 --gui
+```
+
+| オプション | デフォルト | 説明 |
 |----------|---------|------|
-| `-Dir` | `output\training\fresh` | モデルのディレクトリ（1 run = 1 本なので、複数あるのは複数回学習した場合） |
-| `-SwitchSeconds` | `60` | 1 モデルあたりの再生秒数 |
-| `-Python` | `.venv\Scripts\python.exe` | Python 実行パス |
-| `-AiHost` | `127.0.0.1` | ai_server の listen ホスト |
-| `-AiPort` | `8765` | ai_server の listen ポート |
+| `--model` | 自動選択 | モデルパス（未指定: 最新 run の最大ステップ） |
+| `--stage` | 最終ステージ | 評価する世界のステージ id（`ai_server` と同じ解決） |
+| `--episodes` | `2` | 実行エピソード数 |
+| `--max-steps` | `training.yaml` の `episode.max_steps` | 1 エピソードの最大手数 |
+| `--deterministic` | (なし) | 確率的サンプリングをやめて決定的に行動 |
+| `--gui` | (なし) | PyBullet GUI を開く |
 
-### `tools\advance_day.ps1`（日次 ai_server 切り替え）
+評価する世界は `configs/training.yaml` の `curriculum.stages` から引くので、
+配信で見える世界と数値評価の世界がズレない。
 
-| パラメータ | デフォルト | 説明 |
-|----------|---------|------|
-| `-FreshDir` | `output\training\fresh` | 未再生モデルのディレクトリ |
-| `-PlayedDir` | `output\training\played` | 再生済みモデルの退避先 |
-| `-StateFile` | `output\training\advance_state.json` | 前回状態の記録ファイル |
-| `-Python` | `.venv\Scripts\python.exe` | Python 実行パス |
-| `-AiHost` | `127.0.0.1` | ai_server の listen ホスト |
-| `-AiPort` | `8765` | ai_server の listen ポート |
-| `-DurationSeconds` | `0` (無制限) | 0 以外なら ai_server に `--duration` を渡す |
-| `-DryRun` | (なし) | 表示のみ、ai_server は起動しない |
+### `serving.test_client`（WebSocket 疎通確認）
+
+Godot 抜きで WebSocket に接続し、受信フレームを表示する最小クライアント。
+**クライアントから繋がらないときの切り分け**（サーバ側の問題かネットワーク側かを分ける）に使う。
+
+```powershell
+.venv\Scripts\python.exe -m block_stacker.serving.test_client
+```
 
 ### `ai_server`（推論・配信サーバ）の主要オプション
 
@@ -309,7 +328,7 @@ Stage 3 以上の範囲で学習したモデルで確認すること。
 | `--host` | `0.0.0.0` | listen ホスト |
 | `--port` | `8765` | listen ポート |
 | `--stage` | 最終ステージ | デモするステージ番号 |
-| `--duration` | `0` (無制限) | 再生秒数、0 なら常駐（`advance_day.ps1 -DurationSeconds` から渡される） |
+| `--duration` | `0` (無制限) | 再生秒数、0 なら常駐（`replay_checkpoints.ps1 -Seconds` から渡される） |
 | `--thinking-pause` | `2.0` | AI が次手を考える間隔（秒） |
 | `--settle-seconds` | `1.5` | 設置後の物理安定待ち時間（秒） |
 
@@ -370,75 +389,49 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意
 
 ---
 
-## 日次配信モード（fresh/played 方式）
+## 日次で「昨日の続き」を配信する（live_server）
 
-学習で生成したモデルを `fresh/` に蓄積し、**`advance_day.ps1` を毎日呼ぶだけで
-古い→新しい順に自動ステップアップ**して配信する。
+平日ごとに配信しつつ学習を継続し、翌営業日はスナップショットから続きを再開する。
+これが現行の運用モードで、AWS でも同じ形（`docs/aws_deployment.md`）。
 
 ```
-学習後           → fresh/ に sac_<run_ts>_<steps>_steps.zip（プリセット 1 本）が生成
-advance_day.ps1  → fresh/ の最古モデルで ai_server を起動
-                   （前日モデルを played/ へ退避 → 次の最古モデルへ切替）
-fresh/ が空になったら → played/ の最大ステップモデルを繰り返し再生
+月曜  live_server 起動 → 8h 配信＋学習 → 終了時に snapshot を保存
+        fresh/sac_<run_ts>_<steps>_steps.zip  ← その日の到達点（1 本追加）
+        replay_buffer.pkl / resume_state.json ← 長期記憶と再開カーソル（上書き）
+火曜  live_server 起動 → snapshot を読んで**月曜の続き**から学習・配信
+        ...
 ```
 
-> 1 回の学習で出るモデルが 1 本の場合、`fresh/` は 1 日で消費される。日ごとに切り替えたいなら
-> 学習を複数回走らせて `fresh/` に run を溜めるか、`played/` フォールバック再生に任せる。
-
-### ツール
-
-| スクリプト | タイミング | 役割 |
-|---|---|---|
-| `tools\advance_day.ps1` | 平日 14:00（自動） | `fresh/` 最古モデルで ai_server を（再）起動。前回モデルを `played/` へ退避 |
-| `tools\local_loop.ps1` | ローカル観察時 | `fresh/` を昇順に1巡再生して終了（`played/` 移動なし） |
-| `tools\demo_checkpoints.ps1` | 開発時の手動確認 | 一覧から選んで再生 |
-| `serving.live_server` | 学習しながら見たいとき | 配信＋バックグラウンド学習の融合（Step 3-b） |
-
-> これらは**複数 run 分のモデル**を切り替えて再生するツール。1 回の学習で出るモデルは
-> 1 本なので、切り替えて見たい場合は学習を複数回走らせて `fresh/` に溜める必要がある。
-
-### セットアップ手順
+`--snapshot-dir` が読み書き両方の場所で、既定は `output/training`。
+初回だけ `--no-resume` を付けて過去のスナップショットを無視する。
 
 ```powershell
-# 1. 学習を実行（既定=プリセット生成。fresh/ にモデルが 1 本できる）
-.venv\Scripts\python.exe -m block_stacker.training.train
+# 8 時間配信（既定）。前日の続きから再開する
+.venv\Scripts\python.exe -m block_stacker.serving.live_server --snapshot-dir output/training
 
-# 2. day 1 から配信開始（fresh/ の最古モデルで起動）
-tools\advance_day.ps1
-
-# 翌日: day 2 へ切り替え（前日モデルを played/ へ退避し次のモデルで起動）
-tools\advance_day.ps1
+# 初回のみ: スナップショットを無視してプリセットから始める
+.venv\Scripts\python.exe -m block_stacker.serving.live_server --no-resume --duration 600
 ```
+
+> **`fresh/` は溜まっていく**。`live_server` はセッション終了ごとに 1 本追加し、`played/` へは
+> 移さない（移すのは `train` が次の run を始めるときだけ）。溜まった系列を通しで再生して
+> 成長を眺めるのが `tools\replay_checkpoints.ps1 -All`。
+
+詳細（n_envs の決め方・重み同期間隔・時間減衰）は [`docs/live_mode.md`](live_mode.md)。
 
 ### Windows タスクスケジューラ設定
 
 ```powershell
 $root = "C:\Users\iii03\block-stacker"
 
-# 平日 14:00: advance_day（非ブロッキング）
-$triggerAdv = New-ScheduledTaskTrigger -Weekly `
-    -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "14:00"
-$actionAdv  = New-ScheduledTaskAction -Execute "powershell.exe" `
-    -Argument "-NonInteractive -ExecutionPolicy Bypass -File tools\advance_day.ps1 -DurationSeconds 86400" `
+# 平日 10:00 に 8 時間配信（--duration で自己終了する）
+$trigger = New-ScheduledTaskTrigger -Weekly `
+    -DaysOfWeek Monday,Tuesday,Wednesday,Thursday,Friday -At "10:00"
+$action  = New-ScheduledTaskAction -Execute ".venv\Scripts\python.exe" `
+    -Argument "-m block_stacker.serving.live_server --snapshot-dir output/training --duration 28800" `
     -WorkingDirectory $root
-Register-ScheduledTask -TaskName "BlockStacker-AdvanceDay" `
-    -Trigger $triggerAdv -Action $actionAdv -Force
-```
-
-### 手動操作・デバッグ
-
-```powershell
-# 何のモデルを使うか確認（ai_server は起動しない）
-tools\advance_day.ps1 -DryRun
-
-# 1 日あたり 2 時間だけ配信（7200 秒で自動終了）
-tools\advance_day.ps1 -DurationSeconds 7200
-
-# ai_server を直接起動するときも --duration が使える
-.venv\Scripts\python.exe -m block_stacker.serving.ai_server --duration 300
-
-# advance_state.json を確認（今日のモデルと PID）
-Get-Content output\training\advance_state.json
+Register-ScheduledTask -TaskName "BlockStacker-Live" `
+    -Trigger $trigger -Action $action -Force
 ```
 
 ### ディレクトリ構造
@@ -446,26 +439,30 @@ Get-Content output\training\advance_state.json
 ```
 output/
   training/
-    fresh/                 ← 学習直後の新しいモデル（advance_day が消費して played/ へ）
-      sac_20260713-100000_180000_steps.zip   ← 全ステージ走破後のプリセット（最終モデル）
-    played/                ← advance_day.ps1 が再生後に移動したモデル（run ごとに共存・衝突なし）
+    fresh/                 ← 未再生のモデル。live_server がセッションごとに 1 本追加する
+      sac_20260713-100000_180000_steps.zip   ← train のプリセット
+      sac_20260714-180000_183000_steps.zip   ← live_server の 7/14 セッション終了時
+      ...
+    played/                ← train が次の run を始めるときに fresh/ から退避したモデル
       sac_20260706-091500_342000_steps.zip   ← 先週の run（別 run_ts で衝突しない）
       ...
-    advance_state.json     ← {"model": "...", "from_fresh": true, "started_at": "...", ...}
+    replay_buffer.pkl      ← 長期記憶（約 1.6GB）。live_server が読み書きする
+    resume_state.json      ← 再開カーソル（num_timesteps / timestamp / stage）
     checkpoints/           ← 旧ディレクトリ（残っていても自動的に使わない）
-    replay_buffer.pkl
-    resume_state.json
 ```
 
----
+> 旧「日次配信モード（fresh/played 方式）」— `advance_day.ps1` で毎日 1 本ずつ消費して
+> `played/` へ送る運用 — は **`live_server` に置き換わったため撤去**した。
+> 経緯は [`docs/design_change_record.md`](design_change_record.md)。
 
+---
 ## 関連
 
 - 学習スクリプト: [`src/block_stacker/training/train.py`](../src/block_stacker/training/train.py)
 - 推論サーバ: [`src/block_stacker/serving/ai_server.py`](../src/block_stacker/serving/ai_server.py)
 - 配信＋学習融合サーバ: [`src/block_stacker/serving/live_server.py`](../src/block_stacker/serving/live_server.py)
 - **ライブ配信モード**: [`docs/live_mode.md`](live_mode.md)（学習しながら配信する `live_server` の起動・n_envs 設定・スナップショット引き継ぎ）
-- ヘルパー: [`tools/demo_checkpoints.ps1`](../tools/demo_checkpoints.ps1)、[`tools/local_loop.ps1`](../tools/local_loop.ps1)、[`tools/advance_day.ps1`](../tools/advance_day.ps1)
+- ヘルパー: [`tools/replay_checkpoints.ps1`](../tools/replay_checkpoints.ps1)（checkpoint を古い順に再生）
 - **ログ解読マニュアル**: [`docs/log_reading.md`](log_reading.md)（学習/推論ログの読み方）
 - 設計書: [`docs/block_stacker_design.md`](block_stacker_design.md)（3 層記憶アーキテクチャ §3）
 - デプロイ手順書: [`docs/aws_deployment.md`](aws_deployment.md)（§付録 E §1 に記憶仕様の詳細）

@@ -279,7 +279,7 @@ Python パッケージのビルドシステム（`pyproject.toml` の `[build-sy
 
 Windows 標準の高機能シェルスクリプト環境。
 
-- **用途**: `tools/` 以下の運用スクリプト群。`advance_day.ps1`（日次モデル切り替え）・`local_loop.ps1`（ローカル 1 巡再生）・`demo_checkpoints.ps1`（手動デモ）・`deploy/` 以下のデプロイ手順スクリプトを PowerShell で実装。
+- **用途**: `tools/replay_checkpoints.ps1`（checkpoint を古い順に再生して成長を観察）と、`deploy/` 以下のデプロイ手順スクリプトを PowerShell で実装。
 - **採用理由**: 開発環境が Windows であるため。AWS CLI・Terraform との連携も PowerShell スクリプトで統一している。
 
 ### boto3

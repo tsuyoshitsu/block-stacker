@@ -21,7 +21,7 @@ PyBullet 物理シムの結果を WebSocket で Godot クライアントに配�
   - `serving/` — 推論・配信サーバ（ai_server.py / live_server.py）
 - `configs/` — world / physics / reward / training の 4 YAML
 - `client/` — Godot 4.4.1 (mono / C#) クライアント
-- `tools/` — 運用スクリプト（demo_checkpoints.ps1 / local_loop.ps1 / advance_day.ps1）
+- `tools/` — 運用スクリプト（replay_checkpoints.ps1）
 - `tests/` `docs/` `deploy/` `infra-terraform/` `lambda/`
 
 ## 開発環境（重要・間違えやすい）
@@ -73,13 +73,19 @@ PyBullet 物理シムの結果を WebSocket で Godot クライアントに配�
   - **Stage 3 ゼロ開始でも学習は立ち上がる**（掴む→運ぶ→積むを土台なしで獲得できると実測確認）。
 - **学習中はクライアントから見られない**（`training.train` は WebSocket を持たず、モデルも
   走破後まで書き出されない）。学習しながら見たいなら `live_server`（下記）を使う。
-- 日次配信モード（fresh/played 方式）:
-  - `tools/advance_day.ps1`（非ブロッキング）: `fresh/` 最古モデルで ai_server 起動 → 前回モデルを `played/` へ退避
-  - `fresh/` が空になったら `played/` の最大ステップモデルを繰り返し再生（フォールバック）
-  - `advance_day.ps1 -DurationSeconds <秒>`: ai_server を指定秒数で自動終了させる。
-  - `advance_day.ps1 -DryRun`: 表示のみ（ai_server 起動・移動なし）
-- ローカル成長観察（開発用）: `tools/local_loop.ps1`（`fresh/` を (run_ts, steps) 昇順に1巡再生して終了。`played/` 移動なし）。
-- デモ再生（手動・開発用）: `tools/demo_checkpoints.ps1`（ai_server を起動。**常に最終ステージの世界**で再生）。
+- 成長の再生（手動・開発用）: `tools/replay_checkpoints.ps1`
+  - checkpoint を **(run_ts, steps) 昇順**に ai_server で再生する。**常に最終ステージの世界**。
+  - 既定は対話（一覧から1本選択）。`-All` で全件を1巡して終了。`-Seconds <秒>` で1本あたりの再生秒数。
+  - `-Dir output\training\played` で played/ を再生。`-LaunchGodot` で Godot も起動。
+  - `fresh/` には **live_server がセッション終了ごとに1本追加する**ので、平日運用なら
+    月20本前後の成長系列が溜まる（train は1 run につき1本で、次の run 開始時に played/ へ退避）。
+  - 旧 `advance_day.ps1`（日次 fresh→played ローテーション配信）は **live_server に置き換わったため撤去**。
+    `demo_checkpoints.ps1` / `local_loop.ps1` は本スクリプトに統合済み。
+- モデルの数値評価（配信スタック不要）: `.venv\Scripts\python.exe -m block_stacker.training.eval`
+  - WebSocket も Godot も使わず、1手ごとの報酬・event_type・タワー高さとエピソード合計を出力。
+  - 評価する世界は `training.yaml` から引く（既定は最終ステージ。`--stage <id>` で指定可）。
+  - 「配信で見る」系（ai_server / live_server / replay_checkpoints）は数値を出さないので、
+    報酬設計をいじった直後の確認はこちら。
 - ライブ配信モード（訓練＋配信融合）:
   `.venv\Scripts\python.exe -m block_stacker.serving.live_server --snapshot-dir output/training --duration 28800`
   - 常に最終ステージ（Stage 5: 全4形状・最難）で配信する。
@@ -116,6 +122,9 @@ PyBullet 物理シムの結果を WebSocket で Godot クライアントに配�
   `time_penalty=-0.05`。これは「一か所に集める／崩れた分を拾い直す」退行戦略を抑える変更。式と数値例は設計書 §報酬。
   報酬を変えたら**学習はやり直し**。
 - **物理**: `contact.stiffness=40000`（角の刺さり/沈み込み対策）。`friction.block_to_block=0.45`（0.6→×0.75: ブロック間固着緩和）。貫通押し戻し（split impulse）は維持し settle で再静定。
+- **疎通確認**: クライアントから繋がらないときは `.venv\Scripts\python.exe -m block_stacker.serving.test_client`
+  （Godot 抜きで WebSocket に接続してフレームを表示する最小クライアント）。サーバ側とネットワーク側の
+  切り分けに使うので消さないこと。AI なしの物理のみサーバは `serving/demo_server.py`。
 - **デモ**: 散布0 or 物理破綻で拾える散布が無くなったら、ai_server が**全ブロックを再ランダム配置**して
   ラウンド再開（body_id 保持、MVP は演出なし）。
 - **Godot 描画**: 光源は向かって右上。影は cm 級スケール向けに調整（`directional_shadow_max_distance=6` 等）。

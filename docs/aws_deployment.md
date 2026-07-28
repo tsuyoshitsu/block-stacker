@@ -1075,19 +1075,23 @@ memory_system:
 
 ### G.4 checkpoint 比較で「成長」を観察
 
-[`tools/demo_checkpoints.ps1`](../tools/demo_checkpoints.ps1) を使うと、複数 checkpoint を
+[`tools/replay_checkpoints.ps1`](../tools/replay_checkpoints.ps1) を使うと、複数 checkpoint を
 切り替えて再生できる：
 
 ```powershell
-# 対話モード: 番号を選んで一つだけ再生
-tools\demo_checkpoints.ps1
+# 対話モード: 一覧から番号を選んで一つだけ再生
+tools\replay_checkpoints.ps1
 
-# Auto モード: 全 checkpoint を 30 秒ずつ自動再生（成長過程を 10〜30 分で見られる）
-tools\demo_checkpoints.ps1 -Mode auto -Seconds 30
+# 全件を 30 秒ずつ古い順に自動再生（成長過程を 10〜30 分で見られる）
+tools\replay_checkpoints.ps1 -All -Seconds 30
 
 # Godot 起動も込み
-tools\demo_checkpoints.ps1 -Mode auto -Seconds 30 -LaunchGodot
+tools\replay_checkpoints.ps1 -All -Seconds 30 -LaunchGodot
 ```
+
+> `fresh/` には `live_server` がセッション終了ごとに 1 本追加するので、平日運用なら
+> 月 20 本前後の成長系列が溜まる。数値で比較したい場合は
+> `python -m block_stacker.training.eval`（WebSocket も Godot も不要）。
 
 ### G.5 ローカルモデルをクラウドへアップロード
 
@@ -1107,7 +1111,7 @@ aws s3 cp $model s3://bs-app-$ACCOUNT/models/   # 名前は維持（下記注意
 |------|--------|--------|
 | アルゴリズム実験 | ◎ 主力 | △ |
 | ハイパラ調整 | ◎ tensorboard で即確認 | △ |
-| Checkpoint 比較・成長観察 | ◎ tools/demo_checkpoints.ps1 | △ |
+| Checkpoint 比較・成長観察 | ◎ tools/replay_checkpoints.ps1 | △ |
 | 長時間連続学習 | △ 電気代・熱 | ○ 平日 8h の live_server 連続学習を自動化 |
 | 一般視聴者向け配信 | × wss / TLS が無い | ◎ Caddy で配信 |
 | live の長時間運転 | △ | ◎ 平日 8h × 22 日 = 176h/月 |

@@ -362,19 +362,6 @@ def install_shutdown_handlers(
     return installed
 
 
-def _self_stop_instance(reason: str) -> None:
-    """Stub: request the EC2 instance to stop itself at end of session.
-
-    Implement by calling the EC2 metadata service:
-        import requests
-        token = requests.put("http://169.254.169.254/latest/api/token", ...).text
-        requests.put("http://169.254.169.254/latest/meta-data/spot/instance-action",
-                     headers={"X-aws-ec2-metadata-token": token})
-    Or via boto3: ec2.stop_instances(InstanceIds=[instance_id]).
-    """
-    LOG.info("_self_stop_instance: reason=%r (stub -- implement for EC2 deploy)", reason)
-
-
 def _training_thread(
     model_path: Path,
     training_cfg: dict[str, Any],
@@ -600,8 +587,10 @@ async def main_async(args: argparse.Namespace) -> None:
                     SNAPSHOT_SAVE_TIMEOUT_SEC,
                 )
         world.disconnect()
-        LOG.info("world disconnected")
-        _self_stop_instance(reason=reason)
+        LOG.info("shutdown complete (reason=%s); world disconnected", reason)
+        # インスタンスの停止はここではやらない。EC2 の start/stop は
+        # EventBridge Scheduler → Lambda (lambda/handler.py) の責務。
+        # プロセスが終われば systemd の bs-flush.service が snapshot を S3 へ退避する。
 
 
 # ----------------------------------------------------------------- entry point
