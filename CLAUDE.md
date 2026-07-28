@@ -9,7 +9,8 @@ PyBullet 物理シムの結果を WebSocket で Godot クライアントに配�
 [docs/log_reading.md](docs/log_reading.md)（ログ解読・単語帳）/
 [docs/tech_stack.md](docs/tech_stack.md)（使用技術一覧）/
 [docs/live_mode.md](docs/live_mode.md)（ライブ配信モード）/
-[docs/design_change_record.md](docs/design_change_record.md)（**過去仕様のアーカイブ**。旧記述の読み替え表）。
+[docs/design_change_record.md](docs/design_change_record.md)（**過去仕様のアーカイブ**。旧記述の読み替え表）/
+[docs/changelog_2026-07.md](docs/changelog_2026-07.md)（月次の変更まとめ）。
 
 ## リポジトリ構成
 - `src/block_stacker/`
